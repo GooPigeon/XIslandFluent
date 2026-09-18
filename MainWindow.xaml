@@ -40,7 +40,14 @@
             </Border>
         </DataTemplate>
         <DataTemplate x:Key="ReplyCardTemplate" DataType="{x:Type models:Post}">
-            <Border Style="{StaticResource CardStyle}">
+            <StackPanel>
+                <Grid Margin="0,5,0,9" Visibility="{Binding ShowPageDivider, Converter={StaticResource BoolVisibility}}">
+                    <Border Height="1" Background="{DynamicResource StrokeBrush}" VerticalAlignment="Center"/>
+                    <Border Background="{DynamicResource SurfaceBrush}" Padding="10,2" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding PageDividerText}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="11"/>
+                    </Border>
+                </Grid>
+                <Border Style="{StaticResource CardStyle}" Tag="{Binding Id}">
                 <StackPanel>
                     <DockPanel LastChildFill="False">
                         <Border Background="#FFD13438" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,6,0"
@@ -48,6 +55,10 @@
                             <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
                         </Border>
                         <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
+                        <Border Background="#1825A244" CornerRadius="4" Padding="5,1" Margin="7,0,0,0"
+                                Visibility="{Binding IsPo, Converter={StaticResource BoolVisibility}}">
+                            <TextBlock Text="PO" Foreground="#FF188038" FontWeight="SemiBold" FontSize="11"/>
+                        </Border>
                         <TextBlock Text="{Binding Author}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0"/>
                         <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="保存图片" Tag="{Binding}" Click="SaveImage_Click" Margin="6,0,0,0"
@@ -55,7 +66,7 @@
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0"/>
                     </DockPanel>
-                    <TextBlock Text="{Binding CleanContent}" Margin="0,10,0,0" LineHeight="22" TextWrapping="Wrap"/>
+                    <TextBlock Tag="{Binding}" Loaded="PostContent_Loaded" Margin="0,10,0,0" LineHeight="22" TextWrapping="Wrap"/>
                     <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
                         <Grid MinWidth="180" MinHeight="100" Background="{DynamicResource LayerBrush}">
@@ -67,7 +78,8 @@
                         </Grid>
                     </Border>
                 </StackPanel>
-            </Border>
+                </Border>
+            </StackPanel>
         </DataTemplate>
         <HierarchicalDataTemplate DataType="{x:Type models:ForumCategory}" ItemsSource="{Binding Forums}">
             <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Margin="2,5"/>
@@ -90,7 +102,13 @@
                     </Grid>
                     <StackPanel Grid.Row="2" Margin="0,0,0,8">
                         <TextBlock Text="时间线" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="4,0,0,5"/>
-                        <ComboBox x:Name="TimelinePicker" DropDownClosed="TimelinePicker_DropDownClosed" DisplayMemberPath="DisplayName"/>
+                        <ComboBox x:Name="TimelinePicker" DisplayMemberPath="DisplayName">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem">
+                                    <EventSetter Event="PreviewMouseLeftButtonUp" Handler="TimelineItem_Click"/>
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                        </ComboBox>
                     </StackPanel>
                     <StackPanel Grid.Row="3">
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="FeedNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE734;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="我的订阅"/></StackPanel></Button>
@@ -150,7 +168,15 @@
                                 <Button Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="下一页" Click="NextPage_Click"/>
                             </StackPanel>
                         </DockPanel>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><ItemsControl x:Name="ReplyItems" ItemTemplate="{StaticResource ReplyCardTemplate}"/></ScrollViewer>
+                        <Grid Grid.Row="1" ClipToBounds="True">
+                            <ScrollViewer x:Name="ReplyScrollViewer" VerticalScrollBarVisibility="Auto" ScrollChanged="ReplyScrollViewer_ScrollChanged">
+                                <ItemsControl x:Name="ReplyItems" ItemTemplate="{StaticResource ReplyCardTemplate}"/>
+                            </ScrollViewer>
+                            <Canvas x:Name="ReferenceArrowCanvas" IsHitTestVisible="False" Panel.ZIndex="10"/>
+                            <Border x:Name="NextPageLoading" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="7" Padding="12,7" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10" Visibility="Collapsed" Panel.ZIndex="11">
+                                <StackPanel Orientation="Horizontal"><ProgressBar Width="50" Height="3" IsIndeterminate="True"/><TextBlock Text="正在加载下一页" Margin="9,0,0,0" FontSize="12"/></StackPanel>
+                            </Border>
+                        </Grid>
                         <Grid x:Name="ReplyComposer" Grid.Row="2" Margin="0,12,0,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <TextBox x:Name="ReplyBox" AcceptsReturn="True" MinHeight="58" MaxHeight="120" VerticalScrollBarVisibility="Auto"/>

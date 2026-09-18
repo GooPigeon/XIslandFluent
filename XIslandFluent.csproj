@@ -9,7 +9,7 @@
     <RootNamespace>XIslandFluent</RootNamespace>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.3.1</Version>
+    <Version>1.4.0</Version>
     <Authors>OpenAI Codex</Authors>
     <Description>Windows 11 Fluent Design X岛原生桌面客户端</Description>
     <PublishSingleFile>true</PublishSingleFile>

@@ -62,6 +62,9 @@ public class Post
     [JsonIgnore] public string DisplayTitle => string.IsNullOrWhiteSpace(Title) || Title == "无标题" ? $"No.{Id}" : Title;
     [JsonIgnore] public string Author => Admin != 0 ? $"{(string.IsNullOrWhiteSpace(Name) ? "管理员" : Name)} · {UserHash}" : (string.IsNullOrWhiteSpace(UserHash) ? "无名氏" : UserHash);
     [JsonIgnore] public bool IsAnnouncement => Admin != 0;
+    [JsonIgnore] public bool IsPo { get; set; }
+    [JsonIgnore] public bool ShowPageDivider { get; set; }
+    [JsonIgnore] public string PageDividerText { get; set; } = "";
     [JsonIgnore] public bool HasImage => !string.IsNullOrWhiteSpace(ImagePath) && !string.IsNullOrWhiteSpace(ImageExtension);
     [JsonIgnore] public string? ImageUrl { get; set; }
     [JsonIgnore] public string? ThumbnailUrl { get; set; }

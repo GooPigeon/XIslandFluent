@@ -3,11 +3,15 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using XIslandFluent.Models;
 using XIslandFluent.Services;
@@ -33,8 +37,20 @@ public partial class MainWindow : Window
     private ForumInfo? _selectedForum;
     private bool _loaded;
     private bool _replyInProgress;
+    private bool _suppressPoFilter;
+    private bool _isLoadingNextThreadPage;
+    private bool _threadHasMore = true;
+    private int _highestLoadedThreadPage = 1;
     private List<Post> _currentThreadPosts = [];
+    private readonly List<Post> _allThreadPosts = [];
+    private readonly ObservableCollection<Post> _visibleThreadPosts = [];
+    private readonly Dictionary<int, Post> _referenceCache = [];
+    private readonly List<ReferenceVisual> _referenceVisuals = [];
+    private readonly DispatcherTimer _arrowUpdateTimer;
     private string _currentPageTitle = "时间线";
+
+    private static readonly Regex ReferenceRegex = new(@">>No\.(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private sealed record ReferenceVisual(TextBlock Owner, Hyperlink Link, int TargetId);
 
     public ObservableCollection<ForumCategory> ForumCategories => _forumCategories;
 
@@ -44,6 +60,12 @@ public partial class MainWindow : Window
         _api = new XIslandApiService(_settings);
         InitializeComponent();
         DataContext = this;
+        _arrowUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+        _arrowUpdateTimer.Tick += (_, _) =>
+        {
+            _arrowUpdateTimer.Stop();
+            UpdateReferenceArrows();
+        };
         Loaded += MainWindow_Loaded;
         SourceInitialized += (_, _) => ApplyWindowBackdrop();
         StateChanged += (_, _) => ApplyWindowBackdrop();
@@ -127,6 +149,7 @@ public partial class MainWindow : Window
 
     private async Task OpenThreadAsync(int threadId, int page = 1)
     {
+        var isNewThread = threadId != _currentThreadId || _mode != ViewMode.Thread;
         if (_mode != ViewMode.Thread) _returnMode = _mode;
         _currentThreadId = threadId;
         _page = page;
@@ -137,26 +160,102 @@ public partial class MainWindow : Window
         SetHeader($"No.{threadId}", "串内容与回复");
         ReplyItems.ItemsSource = null;
         _currentThreadPosts = [];
+        _allThreadPosts.Clear();
+        _visibleThreadPosts.Clear();
+        _referenceVisuals.Clear();
+        _referenceCache.Clear();
+        ReferenceArrowCanvas.Children.Clear();
+        _highestLoadedThreadPage = page;
+        _threadHasMore = true;
+        if (isNewThread)
+        {
+            _suppressPoFilter = true;
+            OnlyPoCheck.IsChecked = false;
+            _suppressPoFilter = false;
+        }
         ReplyComposer.Visibility = Visibility.Collapsed;
         ThreadLoadingOverlay.Visibility = Visibility.Visible;
         try
         {
             await RunBusyAsync("正在加载串…", async () =>
             {
-                var thread = await _api.GetThreadAsync(threadId, _page, OnlyPoCheck.IsChecked == true);
+                var thread = await _api.GetThreadAsync(threadId, _page, false);
                 var posts = new List<Post> { thread };
                 posts.AddRange(thread.Replies ?? []);
+                MarkPo(posts, thread);
                 PrepareImages(posts);
-                _currentThreadPosts = posts;
-                ReplyItems.ItemsSource = posts;
+                _allThreadPosts.AddRange(posts);
+                _currentThreadPosts = _allThreadPosts;
+                ApplyThreadFilter();
+                ReplyItems.ItemsSource = _visibleThreadPosts;
                 PageContextText.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
                 PageNumberText.Text = $"第 {_page} 页";
+                _threadHasMore = (thread.Replies?.Count ?? 0) > 0;
             });
         }
         finally
         {
             ThreadLoadingOverlay.Visibility = Visibility.Collapsed;
             SetThreadOnlineState(true);
+        }
+    }
+
+    private static void MarkPo(IEnumerable<Post> posts, Post root)
+    {
+        foreach (var post in posts)
+            post.IsPo = ReferenceEquals(post, root) || (!string.IsNullOrWhiteSpace(root.UserHash) && post.UserHash == root.UserHash);
+    }
+
+    private void ApplyThreadFilter()
+    {
+        _visibleThreadPosts.Clear();
+        var onlyPo = OnlyPoCheck.IsChecked == true;
+        foreach (var post in _allThreadPosts)
+            if (!onlyPo || post.IsPo) _visibleThreadPosts.Add(post);
+        ScheduleArrowUpdate();
+    }
+
+    private async Task LoadNextThreadPageAsync()
+    {
+        if (_mode != ViewMode.Thread || _isLoadingNextThreadPage || !_threadHasMore) return;
+        _isLoadingNextThreadPage = true;
+        NextPageLoading.Visibility = Visibility.Visible;
+        try
+        {
+            var nextPage = _highestLoadedThreadPage + 1;
+            var thread = await _api.GetThreadAsync(_currentThreadId, nextPage, false);
+            var existingIds = _allThreadPosts.Select(x => x.Id).ToHashSet();
+            var additions = (thread.Replies ?? []).Where(x => existingIds.Add(x.Id)).ToList();
+            if (additions.Count == 0)
+            {
+                _threadHasMore = false;
+                return;
+            }
+
+            MarkPo(additions, _allThreadPosts[0]);
+            PrepareImages(additions);
+            additions[0].ShowPageDivider = true;
+            additions[0].PageDividerText = $"第 {nextPage} 页";
+            foreach (var post in additions)
+            {
+                _allThreadPosts.Add(post);
+                if (OnlyPoCheck.IsChecked != true || post.IsPo) _visibleThreadPosts.Add(post);
+            }
+            _highestLoadedThreadPage = nextPage;
+            _currentThreadPosts = _allThreadPosts;
+            PageContextText.Text = $"{thread.ReplyCount} 条回复 · 已加载至第 {nextPage} 页";
+            _threadHasMore = additions.Count > 0;
+            ScheduleArrowUpdate();
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write($"Load next thread page failed thread={_currentThreadId}", ex);
+            ShowTransientStatus($"下一页加载失败：{ex.Message}");
+        }
+        finally
+        {
+            NextPageLoading.Visibility = Visibility.Collapsed;
+            _isLoadingNextThreadPage = false;
         }
     }
 
@@ -255,9 +354,12 @@ public partial class MainWindow : Window
         await ShowBoardAsync(forum, true);
     }
 
-    private async void TimelinePicker_DropDownClosed(object sender, EventArgs e)
+    private async void TimelineItem_Click(object sender, MouseButtonEventArgs e)
     {
-        if (!_loaded || TimelinePicker.SelectedItem is not TimelineInfo timeline) return;
+        if (!_loaded || sender is not ComboBoxItem { DataContext: TimelineInfo timeline }) return;
+        e.Handled = true;
+        TimelinePicker.SelectedItem = timeline;
+        TimelinePicker.IsDropDownOpen = false;
         _currentTimelineId = timeline.Id;
         await ShowTimelineAsync(true);
     }
@@ -303,9 +405,152 @@ public partial class MainWindow : Window
         else await ShowTimelineAsync(false);
     }
 
-    private async void OnlyPoCheck_Changed(object sender, RoutedEventArgs e)
+    private void OnlyPoCheck_Changed(object sender, RoutedEventArgs e)
     {
-        if (_mode == ViewMode.Thread) await OpenThreadAsync(_currentThreadId, 1);
+        if (!_suppressPoFilter && _mode == ViewMode.Thread) ApplyThreadFilter();
+    }
+
+    private async void ReplyScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        ScheduleArrowUpdate();
+        if (e.ExtentHeight <= 0 || e.ViewportHeight <= 0) return;
+        if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - Math.Max(90, e.ViewportHeight * 0.12))
+            await LoadNextThreadPageAsync();
+    }
+
+    private void PostContent_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBlock { Tag: Post post } textBlock) return;
+        _referenceVisuals.RemoveAll(x => ReferenceEquals(x.Owner, textBlock));
+        textBlock.Inlines.Clear();
+        var content = post.CleanContent;
+        var offset = 0;
+        foreach (Match match in ReferenceRegex.Matches(content))
+        {
+            if (match.Index > offset) textBlock.Inlines.Add(new Run(content[offset..match.Index]));
+            if (!int.TryParse(match.Groups[1].Value, out var targetId)) continue;
+            var link = new Hyperlink(new Run(match.Value))
+            {
+                Foreground = new SolidColorBrush(Color.FromRgb(196, 43, 28)),
+                TextDecorations = null,
+                Cursor = Cursors.Hand,
+                ToolTip = new ToolTip { Content = "正在加载引用内容…" }
+            };
+            link.Click += ReferenceLink_Click;
+            link.MouseEnter += ReferenceLink_MouseEnter;
+            link.MouseLeave += (_, _) => ScheduleArrowUpdate();
+            link.Tag = targetId;
+            textBlock.Inlines.Add(link);
+            _referenceVisuals.Add(new ReferenceVisual(textBlock, link, targetId));
+            offset = match.Index + match.Length;
+        }
+        if (offset < content.Length) textBlock.Inlines.Add(new Run(content[offset..]));
+        ScheduleArrowUpdate();
+    }
+
+    private async void ReferenceLink_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is not Hyperlink { Tag: int targetId } link || link.ToolTip is not ToolTip tip) return;
+        try
+        {
+            var post = _allThreadPosts.FirstOrDefault(x => x.Id == targetId);
+            if (post is null && !_referenceCache.TryGetValue(targetId, out post))
+            {
+                post = await _api.GetReferenceAsync(targetId);
+                _referenceCache[targetId] = post;
+            }
+            var content = post.CleanContent;
+            if (content.Length > 260) content = content[..260] + "…";
+            tip.Content = $"No.{post.Id} · {post.Author}\n{post.Time}\n\n{content}";
+            tip.IsOpen = true;
+        }
+        catch (Exception ex)
+        {
+            tip.Content = $"引用内容加载失败：{ex.Message}";
+        }
+        ScheduleArrowUpdate();
+    }
+
+    private void ReferenceLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Hyperlink { Tag: int targetId }) return;
+        e.Handled = true;
+        var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == targetId);
+        if (target is null)
+        {
+            ShowTransientStatus($"No.{targetId} 尚未加载，继续下滑可加载后续页面");
+            return;
+        }
+        if (ReplyItems.ItemContainerGenerator.ContainerFromItem(target) is FrameworkElement element)
+        {
+            element.BringIntoView();
+            element.BeginAnimation(OpacityProperty, new DoubleAnimation(0.45, 1, TimeSpan.FromMilliseconds(320)));
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ScheduleArrowUpdate));
+        }
+    }
+
+    private void ScheduleArrowUpdate()
+    {
+        _arrowUpdateTimer.Stop();
+        _arrowUpdateTimer.Start();
+    }
+
+    private void UpdateReferenceArrows()
+    {
+        foreach (UIElement old in ReferenceArrowCanvas.Children.Cast<UIElement>().ToList())
+        {
+            var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(110));
+            fadeOut.Completed += (_, _) => ReferenceArrowCanvas.Children.Remove(old);
+            old.BeginAnimation(OpacityProperty, fadeOut);
+        }
+        if (_mode != ViewMode.Thread || OnlyPoCheck.IsChecked == true || ReferenceArrowCanvas.ActualHeight <= 0) return;
+
+        var maxDistance = Math.Max(ReplyScrollViewer.ViewportHeight * 2.1, 600);
+        foreach (var reference in _referenceVisuals)
+        {
+            var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == reference.TargetId);
+            if (target is null || ReplyItems.ItemContainerGenerator.ContainerFromItem(target) is not FrameworkElement targetElement) continue;
+            if (!reference.Owner.IsVisible || !targetElement.IsVisible) continue;
+            try
+            {
+                var sourcePoint = reference.Owner.TransformToAncestor(ReferenceArrowCanvas).Transform(new Point(4, reference.Owner.ActualHeight / 2));
+                var targetPoint = targetElement.TransformToAncestor(ReferenceArrowCanvas).Transform(new Point(4, Math.Min(28, targetElement.ActualHeight / 2)));
+                if (Math.Abs(sourcePoint.Y - targetPoint.Y) > maxDistance) continue;
+                AddReferenceArrow(sourcePoint.Y, targetPoint.Y);
+            }
+            catch (InvalidOperationException) { }
+        }
+    }
+
+    private void AddReferenceArrow(double sourceY, double targetY)
+    {
+        var height = ReferenceArrowCanvas.ActualHeight;
+        if (sourceY < -height || sourceY > height * 2 || targetY < -height || targetY > height * 2) return;
+        sourceY = Math.Clamp(sourceY, 8, height - 8);
+        targetY = Math.Clamp(targetY, 8, height - 8);
+        const double outerX = 6;
+        const double innerX = 25;
+        var geometry = new PathGeometry();
+        var figure = new PathFigure { StartPoint = new Point(innerX, sourceY), IsClosed = false };
+        figure.Segments.Add(new BezierSegment(new Point(outerX, sourceY), new Point(outerX, targetY), new Point(innerX, targetY), true));
+        geometry.Figures.Add(figure);
+        var brush = new SolidColorBrush(Color.FromRgb(22, 163, 74));
+        var path = new System.Windows.Shapes.Path { Data = geometry, Stroke = brush, StrokeThickness = 3.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Opacity = 0 };
+        var direction = targetY < sourceY ? -1d : 1d;
+        var arrow = new System.Windows.Shapes.Polygon
+        {
+            Fill = brush,
+            Points = new PointCollection
+            {
+                new(innerX, targetY), new(innerX - 9, targetY - 5 * direction), new(innerX - 7, targetY + 6 * direction)
+            },
+            Opacity = 0
+        };
+        ReferenceArrowCanvas.Children.Add(path);
+        ReferenceArrowCanvas.Children.Add(arrow);
+        var fade = new DoubleAnimation(0, 0.9, TimeSpan.FromMilliseconds(180));
+        path.BeginAnimation(OpacityProperty, fade);
+        arrow.BeginAnimation(OpacityProperty, fade);
     }
 
     private void ChooseReplyImage_Click(object sender, RoutedEventArgs e)
@@ -525,6 +770,11 @@ public partial class MainWindow : Window
         if (package is null) return;
         _currentThreadId = package.ThreadId;
         _currentThreadPosts = package.Posts;
+        _allThreadPosts.Clear();
+        _allThreadPosts.AddRange(package.Posts);
+        if (package.Posts.Count > 0) MarkPo(package.Posts, package.Posts[0]);
+        _referenceVisuals.Clear();
+        ReferenceArrowCanvas.Children.Clear();
         _page = 1;
         _mode = ViewMode.OfflineThread;
         ShowPanel(ThreadPanel);
