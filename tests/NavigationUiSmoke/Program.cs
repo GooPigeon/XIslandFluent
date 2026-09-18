@@ -57,6 +57,26 @@ internal static class Program
                 var arrowCanvas = (Canvas)(window.FindName("ReferenceArrowCanvas") ?? throw new InvalidOperationException("ReferenceArrowCanvas not found"));
                 if (arrowCanvas.Children.Count == 0)
                     throw new InvalidOperationException("引用箭头没有生成");
+                var laneByColor = arrowCanvas.Children.OfType<System.Windows.Shapes.Path>()
+                    .Where(x => x.Visibility == Visibility.Visible && x.Stroke is SolidColorBrush)
+                    .GroupBy(x => ((SolidColorBrush)x.Stroke).Color)
+                    .Select(x => ((PathGeometry)x.First().Data).Figures[0].Segments.OfType<LineSegment>().First().Point.X)
+                    .ToList();
+                if (laneByColor.Count > 1 && laneByColor.Distinct().Count() != laneByColor.Count)
+                    throw new InvalidOperationException("不同颜色的引用竖线仍然共用同一轨道");
+                var orderedLanes = laneByColor.Distinct().OrderBy(x => x).ToList();
+                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 5))
+                    throw new InvalidOperationException("不同引用竖线间距不足");
+
+                var poPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.IsPo);
+                var poContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(poPost) ?? throw new InvalidOperationException("PO 容器缺失"));
+                var poCard = Descendants<Border>(poContainer).First(x => x.Tag is int id && id == poPost.Id);
+                var poLabel = Descendants<TextBlock>(poCard).First(x => x.Text == "PO");
+                var poNumber = Descendants<TextBlock>(poCard).First(x => x.Text == $"No.{poPost.Id}");
+                var poCenter = poLabel.TransformToAncestor(poCard).Transform(new Point(0, poLabel.ActualHeight / 2)).Y;
+                var numberCenter = poNumber.TransformToAncestor(poCard).Transform(new Point(0, poNumber.ActualHeight / 2)).Y;
+                if (Math.Abs(poCenter - numberCenter) > 2)
+                    throw new InvalidOperationException("PO 标记与串号未垂直对齐");
                 var referenceVisual = FindReferenceVisual(window, localReference);
                 var arrowPath = referenceVisual.GetType().GetProperty("Path")?.GetValue(referenceVisual) as System.Windows.Shapes.Path
                     ?? throw new InvalidOperationException("引用箭头路径缺失");

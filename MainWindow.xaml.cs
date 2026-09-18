@@ -588,7 +588,9 @@ public partial class MainWindow : Window
                     : new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2);
                 var sourcePoint = ownerTransform.Transform(sourceInOwner);
                 var targetTopLeft = targetCard.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(0, 0));
-                var targetY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2);
+                var targetOffset = (reference.ColorIndex - (ReferenceColors.Length - 1) / 2d) * 7;
+                var targetY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2) + targetOffset;
+                targetY = Math.Clamp(targetY, targetTopLeft.Y + 10, targetTopLeft.Y + Math.Max(10, targetCard.ActualHeight - 10));
                 var sourceOnScreen = sourcePoint.Y >= 0 && sourcePoint.Y <= height;
                 var targetOnScreen = targetTopLeft.Y + targetCard.ActualHeight >= 0 && targetTopLeft.Y <= height;
                 var shouldShow = (sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetY) <= maxDistance;
@@ -617,9 +619,9 @@ public partial class MainWindow : Window
     private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height)
     {
         EnsureArrow(reference);
-        const double endpointX = 20;
-        const double arrowBaseX = 12;
-        var laneX = 4 + reference.ColorIndex % 3 * 3;
+        const double endpointX = 44;
+        const double arrowBaseX = 36;
+        var laneX = 4 + reference.ColorIndex * 6;
         var geometry = new PathGeometry();
         PathFigure figure;
         PointCollection arrowPoints;

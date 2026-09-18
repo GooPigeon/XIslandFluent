@@ -12,15 +12,15 @@
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel Margin="0,0,14,0">
-                        <DockPanel LastChildFill="True">
-                            <Border Background="#FFD13438" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,6,0"
+                        <DockPanel LastChildFill="True" VerticalAlignment="Center">
+                            <Border Background="#FFD13438" CornerRadius="10" Height="20" Padding="7,0" DockPanel.Dock="Left" Margin="0,0,6,0" VerticalAlignment="Center"
                                     Visibility="{Binding IsAnnouncement, Converter={StaticResource BoolVisibility}}">
-                                <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
+                                <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
                             </Border>
-                            <Border Background="#140067C0" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,8,0">
-                                <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
+                            <Border Background="#140067C0" CornerRadius="4" Height="20" Padding="6,0" DockPanel.Dock="Left" Margin="0,0,8,0" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontSize="12" VerticalAlignment="Center"/>
                             </Border>
-                            <TextBlock Text="{Binding DisplayTitle}" FontFamily="Segoe UI Variable Display, Microsoft YaHei UI" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding DisplayTitle}" FontFamily="Segoe UI Variable Display, Microsoft YaHei UI" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </DockPanel>
                         <TextBlock Text="{Binding CleanContent}" Margin="0,9,0,10" MaxHeight="78" TextTrimming="CharacterEllipsis" LineHeight="22"/>
                         <DockPanel>
@@ -40,7 +40,7 @@
             </Border>
         </DataTemplate>
         <DataTemplate x:Key="ReplyCardTemplate" DataType="{x:Type models:Post}">
-            <StackPanel Margin="22,0,0,0">
+            <StackPanel Margin="48,0,0,0">
                 <Grid Margin="0,5,0,9" Visibility="{Binding ShowPageDivider, Converter={StaticResource BoolVisibility}}">
                     <Border Height="1" Background="{DynamicResource StrokeBrush}" VerticalAlignment="Center"/>
                     <Border Background="{DynamicResource SurfaceBrush}" Padding="10,2" HorizontalAlignment="Center">
@@ -50,22 +50,22 @@
                 <Grid>
                 <Border Style="{StaticResource CardStyle}" Tag="{Binding Id}">
                 <StackPanel>
-                    <DockPanel LastChildFill="False">
-                        <Border Background="#FFD13438" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,6,0"
+                    <DockPanel LastChildFill="False" MinHeight="26" VerticalAlignment="Center">
+                        <Border Background="#FFD13438" CornerRadius="10" Height="20" Padding="7,0" DockPanel.Dock="Left" Margin="0,0,6,0" VerticalAlignment="Center"
                                 Visibility="{Binding IsAnnouncement, Converter={StaticResource BoolVisibility}}">
-                            <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
+                            <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         <Border DockPanel.Dock="Left" Background="#FF188038" CornerRadius="10" Height="20" MinWidth="32" Padding="7,0" Margin="8,0,0,0"
                                 VerticalAlignment="Center" Visibility="{Binding IsPo, Converter={StaticResource BoolVisibility}}">
                             <TextBlock Text="PO" Foreground="White" FontWeight="SemiBold" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                        <TextBlock Text="{Binding Author}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0"/>
-                        <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12"/>
+                        <TextBlock Text="{Binding Author}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="保存图片" Tag="{Binding}" Click="SaveImage_Click" Margin="6,0,0,0"
-                                Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click"/>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0"/>
+                                VerticalAlignment="Center" Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click" VerticalAlignment="Center"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     </DockPanel>
                     <TextBlock Tag="{Binding}" Loaded="PostContent_Loaded" Margin="0,10,0,0" LineHeight="22" TextWrapping="Wrap"/>
                     <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
