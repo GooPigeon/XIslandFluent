@@ -434,11 +434,13 @@ public partial class MainWindow : Window
                 Foreground = new SolidColorBrush(Color.FromRgb(196, 43, 28)),
                 TextDecorations = null,
                 Cursor = Cursors.Hand,
-                ToolTip = new ToolTip { Content = "正在加载引用内容…" }
+                ToolTip = new ToolTip { Content = "正在加载引用内容…", Placement = System.Windows.Controls.Primitives.PlacementMode.Mouse }
             };
+            ToolTipService.SetInitialShowDelay(link, 250);
+            ToolTipService.SetShowDuration(link, 12000);
             link.Click += ReferenceLink_Click;
             link.MouseEnter += ReferenceLink_MouseEnter;
-            link.MouseLeave += (_, _) => ScheduleArrowUpdate();
+            link.MouseLeave += ReferenceLink_MouseLeave;
             link.Tag = targetId;
             textBlock.Inlines.Add(link);
             _referenceVisuals.Add(new ReferenceVisual(textBlock, link, targetId));
@@ -462,7 +464,6 @@ public partial class MainWindow : Window
             var content = post.CleanContent;
             if (content.Length > 260) content = content[..260] + "…";
             tip.Content = $"No.{post.Id} · {post.Author}\n{post.Time}\n\n{content}";
-            tip.IsOpen = true;
         }
         catch (Exception ex)
         {
@@ -471,21 +472,36 @@ public partial class MainWindow : Window
         ScheduleArrowUpdate();
     }
 
-    private void ReferenceLink_Click(object sender, RoutedEventArgs e)
+    private void ReferenceLink_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (sender is Hyperlink { ToolTip: ToolTip tip }) tip.IsOpen = false;
+        ScheduleArrowUpdate();
+    }
+
+    private async void ReferenceLink_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Hyperlink { Tag: int targetId }) return;
         e.Handled = true;
         var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == targetId);
         if (target is null)
         {
-            ShowTransientStatus($"No.{targetId} 尚未加载，继续下滑可加载后续页面");
+            try
+            {
+                ShowTransientStatus($"正在定位 No.{targetId}…");
+                await _api.GetThreadAsync(targetId, 1, false);
+                await OpenThreadAsync(targetId, 1);
+            }
+            catch (Exception)
+            {
+                ShowTransientStatus($"No.{targetId} 是其他串的回复；接口未提供其所属主串，无法直接定位");
+            }
             return;
         }
         if (ReplyItems.ItemContainerGenerator.ContainerFromItem(target) is FrameworkElement element)
         {
             element.BringIntoView();
             element.BeginAnimation(OpacityProperty, new DoubleAnimation(0.45, 1, TimeSpan.FromMilliseconds(320)));
-            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ScheduleArrowUpdate));
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ScheduleArrowUpdate));
         }
     }
 
@@ -513,19 +529,27 @@ public partial class MainWindow : Window
             if (!reference.Owner.IsVisible || !targetElement.IsVisible) continue;
             try
             {
-                var sourcePoint = reference.Owner.TransformToAncestor(ReferenceArrowCanvas).Transform(new Point(4, reference.Owner.ActualHeight / 2));
-                var targetPoint = targetElement.TransformToAncestor(ReferenceArrowCanvas).Transform(new Point(4, Math.Min(28, targetElement.ActualHeight / 2)));
+                var ownerTransform = reference.Owner.TransformToVisual(ReferenceArrowCanvas);
+                var sourceRect = reference.Link.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                var sourceInOwner = sourceRect.IsEmpty
+                    ? new Point(4, reference.Owner.ActualHeight / 2)
+                    : new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2);
+                var sourcePoint = ownerTransform.Transform(sourceInOwner);
+                var targetPoint = targetElement.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(4, Math.Min(28, targetElement.ActualHeight / 2)));
                 if (Math.Abs(sourcePoint.Y - targetPoint.Y) > maxDistance) continue;
                 AddReferenceArrow(sourcePoint.Y, targetPoint.Y);
             }
             catch (InvalidOperationException) { }
+            catch (ArgumentException) { }
         }
     }
 
     private void AddReferenceArrow(double sourceY, double targetY)
     {
         var height = ReferenceArrowCanvas.ActualHeight;
-        if (sourceY < -height || sourceY > height * 2 || targetY < -height || targetY > height * 2) return;
+        if (height < 24) return;
+        var reach = height * 2.2;
+        if (sourceY < -reach || sourceY > height + reach || targetY < -reach || targetY > height + reach) return;
         sourceY = Math.Clamp(sourceY, 8, height - 8);
         targetY = Math.Clamp(targetY, 8, height - 8);
         const double outerX = 6;

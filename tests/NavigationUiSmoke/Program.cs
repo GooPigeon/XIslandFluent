@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using XIslandFluent;
 
@@ -17,7 +20,7 @@ internal static class Program
         {
             Source = new Uri("pack://application:,,,/XIsland;component/Themes/Fluent.xaml", UriKind.Absolute)
         });
-        var window = new MainWindow { ShowInTaskbar = false, WindowState = WindowState.Minimized, Opacity = 0 };
+        var window = new MainWindow { ShowInTaskbar = false, ShowActivated = false, Left = -10000, Top = -10000, Opacity = 0 };
         var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         timeout.Tick += (_, _) =>
         {
@@ -41,6 +44,25 @@ internal static class Program
                 await task;
                 if (overlay.Visibility != Visibility.Collapsed || replies.Items.Count == 0)
                     throw new InvalidOperationException("新串加载完成状态不正确");
+                window.UpdateLayout();
+                await Task.Delay(250);
+                var loadedIds = replies.Items.Cast<XIslandFluent.Models.Post>().Select(x => x.Id).ToHashSet();
+                var localReference = Descendants<TextBlock>(replies)
+                    .SelectMany(x => x.Inlines.OfType<Hyperlink>())
+                    .FirstOrDefault(x => x.Tag is int id && loadedIds.Contains(id))
+                    ?? throw new InvalidOperationException("没有生成可测试的本页引用链接");
+                var updateArrows = typeof(MainWindow).GetMethod("UpdateReferenceArrows", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingMethodException("UpdateReferenceArrows");
+                updateArrows.Invoke(window, null);
+                var arrowCanvas = (Canvas)(window.FindName("ReferenceArrowCanvas") ?? throw new InvalidOperationException("ReferenceArrowCanvas not found"));
+                if (arrowCanvas.Children.Count == 0)
+                    throw new InvalidOperationException("引用箭头没有生成");
+                var tooltip = (ToolTip)(localReference.ToolTip ?? throw new InvalidOperationException("引用悬浮窗缺失"));
+                tooltip.IsOpen = true;
+                var mouseLeave = typeof(MainWindow).GetMethod("ReferenceLink_MouseLeave", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingMethodException("ReferenceLink_MouseLeave");
+                mouseLeave.Invoke(window, [localReference, new MouseEventArgs(Mouse.PrimaryDevice, 0)]);
+                if (tooltip.IsOpen) throw new InvalidOperationException("引用悬浮窗离开后仍未关闭");
                 var firstPageCount = replies.Items.Count;
                 var loadNext = typeof(MainWindow).GetMethod("LoadNextThreadPageAsync", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("LoadNextThreadPageAsync");
@@ -59,7 +81,13 @@ internal static class Program
                     throw new InvalidOperationException("取消只看 PO 后未恢复已加载回复");
                 var appendedCount = replies.Items.Count;
                 onlyPo.IsChecked = true;
-                await ((Task?)openThread.Invoke(window, [69466323, 1]) ?? throw new InvalidOperationException("second OpenThreadAsync did not return Task"));
+                var referenceClick = typeof(MainWindow).GetMethod("ReferenceLink_Click", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingMethodException("ReferenceLink_Click");
+                referenceClick.Invoke(window, [new Hyperlink { Tag = 69466323 }, new RoutedEventArgs(Hyperlink.ClickEvent)]);
+                for (var i = 0; i < 80 && (!window.Title.Contains("69466323") || overlay.Visibility != Visibility.Collapsed); i++)
+                    await Task.Delay(250);
+                if (!window.Title.Contains("69466323"))
+                    throw new InvalidOperationException("指向其他主串的引用没有打开目标串");
                 if (onlyPo.IsChecked == true)
                     throw new InvalidOperationException("只看 PO 状态被带到另一串");
                 exitCode = 0;
@@ -77,5 +105,15 @@ internal static class Program
         window.Show();
         app.Run();
         return exitCode;
+    }
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
     }
 }
