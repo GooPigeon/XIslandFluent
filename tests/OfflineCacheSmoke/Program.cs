@@ -19,6 +19,9 @@ try
     var loaded = await cache.LoadAsync(packagePath);
     if (listed.ThreadId != post.Id || loaded.Posts.Single().CleanContent != "缓存内容") throw new Exception("缓存内容校验失败");
     if (!File.Exists(loaded.Posts.Single().ImageUrl)) throw new Exception("缓存图片未恢复");
+    using var api = new XIslandApiService(new AppSettings());
+    var restoredImage = await api.DownloadImageAsync(loaded.Posts.Single().ImageUrl!);
+    if (restoredImage.Length != 4) throw new Exception("本机缓存图片读取失败");
     Console.WriteLine($"PASS offline thread={loaded.ThreadId} images={loaded.Images.Count}");
 }
 finally

@@ -13,6 +13,10 @@
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <StackPanel Margin="0,0,14,0">
                         <DockPanel LastChildFill="True">
+                            <Border Background="#FFD13438" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,6,0"
+                                    Visibility="{Binding IsAnnouncement, Converter={StaticResource BoolVisibility}}">
+                                <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
+                            </Border>
                             <Border Background="#140067C0" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,8,0">
                                 <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontSize="12"/>
                             </Border>
@@ -27,7 +31,7 @@
                     </StackPanel>
                     <Border Grid.Column="1" Width="112" Height="82" CornerRadius="6" ClipToBounds="True" Background="{DynamicResource LayerBrush}"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
-                        <Image Source="{Binding ThumbnailUrl}" Stretch="UniformToFill"/>
+                        <Image Source="{Binding ThumbnailUrl}" Stretch="UniformToFill" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click"/>
                     </Border>
                 </Grid>
             </Border>
@@ -36,6 +40,10 @@
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
                     <DockPanel LastChildFill="False">
+                        <Border Background="#FFD13438" CornerRadius="4" Padding="6,2" DockPanel.Dock="Left" Margin="0,0,6,0"
+                                Visibility="{Binding IsAnnouncement, Converter={StaticResource BoolVisibility}}">
+                            <TextBlock Text="公告" Foreground="White" FontWeight="SemiBold" FontSize="12"/>
+                        </Border>
                         <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
                         <TextBlock Text="{Binding Author}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0"/>
                         <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12"/>
@@ -47,7 +55,7 @@
                     <TextBlock Text="{Binding CleanContent}" Margin="0,10,0,0" LineHeight="22" TextWrapping="Wrap"/>
                     <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
-                        <Image Source="{Binding ImageUrl}" Stretch="Uniform"/>
+                        <Image Source="{Binding ImageUrl}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
                     </Border>
                 </StackPanel>
             </Border>
@@ -65,32 +73,40 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="248"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Border Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,1,0">
                 <Grid Margin="12">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                     <Button Style="{StaticResource AccentButton}" HorizontalContentAlignment="Left" Margin="0,4,0,8" Click="Search_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="搜索全岛"/></StackPanel></Button>
                     <Grid Grid.Row="1" Margin="0,0,0,12">
                         <TextBox x:Name="QuickOpenBox" ToolTip="输入串号并按 Enter" KeyDown="QuickOpenBox_KeyDown" TextChanged="QuickOpenBox_TextChanged"/>
                         <TextBlock x:Name="QuickOpenHint" Text="输入串号并按 Enter" Foreground="{DynamicResource SubtleTextBrush}" IsHitTestVisible="False" VerticalAlignment="Center" Margin="12,0,8,0"/>
                     </Grid>
-                    <StackPanel Grid.Row="2">
-                        <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="TimelineNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE823;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="时间线"/></StackPanel></Button>
-                        <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="ForumsNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8A9;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="浏览板块"/></StackPanel></Button>
+                    <StackPanel Grid.Row="2" Margin="0,0,0,8">
+                        <TextBlock Text="时间线" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="4,0,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <ComboBox x:Name="TimelinePicker" SelectionChanged="TimelinePicker_SelectionChanged" DisplayMemberPath="DisplayName"/>
+                            <Button Grid.Column="1" Style="{StaticResource FluentButton}" Content="打开" Padding="10,5" MinHeight="30" Margin="6,0,0,0" Click="TimelineNav_Click"/>
+                        </Grid>
+                    </StackPanel>
+                    <StackPanel Grid.Row="3">
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="FeedNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE734;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="我的订阅"/></StackPanel></Button>
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="OfflineNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="离线缓存"/></StackPanel></Button>
-                        <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="NoticeNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="公告"/></StackPanel></Button>
                     </StackPanel>
-                    <Button Grid.Row="3" Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Click="SettingsNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="设置"/></StackPanel></Button>
+                    <TextBlock Grid.Row="4" Text="浏览板块" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="4,8,0,5"/>
+                    <TreeView Grid.Row="5" x:Name="ForumTree" ItemsSource="{Binding ForumCategories}" SelectedItemChanged="ForumTree_SelectedItemChanged" Background="Transparent" BorderThickness="0">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem"><Setter Property="IsExpanded" Value="True"/></Style>
+                        </TreeView.ItemContainerStyle>
+                    </TreeView>
+                    <Button Grid.Row="6" Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Click="SettingsNav_Click" Margin="0,8,0,0"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="设置"/></StackPanel></Button>
                 </Grid>
             </Border>
 
             <Grid Grid.Column="1">
-                <Grid.RowDefinitions><RowDefinition Height="72"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border Grid.Row="0" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1" Background="#08FFFFFF">
                     <Grid Margin="24,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock x:Name="PageTitle" Text="时间线" FontFamily="Segoe UI Variable Display, Microsoft YaHei UI" FontSize="24" FontWeight="SemiBold"/>
-                            <TextBlock x:Name="PageSubtitle" Text="来自全岛的最新内容" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12"/>
-                        </StackPanel>
+                        <TextBlock x:Name="PageContextText" Text="来自全岛的最新内容" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button x:Name="BackButton" Style="{StaticResource FluentButton}" Content="返回" Click="Back_Click" Visibility="Collapsed" Margin="0,0,8,0"/>
                             <Button Style="{StaticResource FluentButton}" Content="刷新" Click="Refresh_Click" Margin="0,0,8,0"/>
@@ -104,30 +120,15 @@
 
                 <Grid Grid.Row="2" Margin="24,18,24,20">
                     <Grid x:Name="ListViewPanel">
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <ComboBox x:Name="TimelinePicker" Width="240" HorizontalAlignment="Left" SelectionChanged="TimelinePicker_SelectionChanged" Margin="0,0,0,12" DisplayMemberPath="DisplayName"/>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
                             <ItemsControl x:Name="ThreadItems" ItemTemplate="{StaticResource ThreadCardTemplate}"/>
                         </ScrollViewer>
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
                             <Button Style="{StaticResource FluentButton}" Content="上一页" Click="PreviousPage_Click" Margin="0,0,8,0"/>
                             <TextBlock x:Name="PageNumberText" Text="第 1 页" VerticalAlignment="Center" Margin="8,0"/>
                             <Button Style="{StaticResource FluentButton}" Content="下一页" Click="NextPage_Click" Margin="8,0,0,0"/>
                         </StackPanel>
-                    </Grid>
-
-                    <Grid x:Name="ForumsPanel" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="340"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                        <Border Style="{StaticResource CardStyle}" Margin="0">
-                            <TreeView x:Name="ForumTree" ItemsSource="{Binding ForumCategories}" SelectedItemChanged="ForumTree_SelectedItemChanged" Background="Transparent" BorderThickness="0"/>
-                        </Border>
-                        <Border Grid.Column="2" Style="{StaticResource CardStyle}" Margin="0">
-                            <StackPanel>
-                                <TextBlock x:Name="ForumDetailName" Text="选择一个板块" FontSize="22" FontWeight="SemiBold"/>
-                                <TextBlock x:Name="ForumDetailDescription" Text="从左侧列表选择板块后即可浏览。" Foreground="{DynamicResource SubtleTextBrush}" Margin="0,8,0,18"/>
-                                <Button x:Name="OpenForumButton" Style="{StaticResource AccentButton}" Content="打开板块" Click="OpenForum_Click" HorizontalAlignment="Left" IsEnabled="False"/>
-                            </StackPanel>
-                        </Border>
                     </Grid>
 
                     <Grid x:Name="ThreadPanel" Visibility="Collapsed">
@@ -176,11 +177,6 @@
                         </ScrollViewer>
                     </Grid>
 
-                    <Grid x:Name="NoticePanel" Visibility="Collapsed">
-                        <Border Style="{StaticResource CardStyle}" Margin="0" MaxWidth="820" HorizontalAlignment="Left" VerticalAlignment="Top">
-                            <StackPanel><TextBlock Text="站点公告" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="NoticeText" Text="正在获取公告…" Margin="0,16,0,0" LineHeight="23"/></StackPanel>
-                        </Border>
-                    </Grid>
                 </Grid>
             </Grid>
         </Grid>

@@ -86,9 +86,9 @@ public sealed class XIslandApiService : IDisposable
 
     public async Task<byte[]> DownloadImageAsync(string url, CancellationToken ct = default)
     {
+        if (File.Exists(url)) return await File.ReadAllBytesAsync(url, ct);
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
-            if (File.Exists(url)) return await File.ReadAllBytesAsync(url, ct);
             throw new ApiException("图片地址无效");
         }
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);

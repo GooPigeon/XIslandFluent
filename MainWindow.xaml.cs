@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -15,7 +16,7 @@ namespace XIslandFluent;
 
 public partial class MainWindow : Window
 {
-    private enum ViewMode { Timeline, Board, Feed, Thread, OfflineThread, Forums, Offline, Settings, Notice }
+    private enum ViewMode { Timeline, Board, Feed, Thread, OfflineThread, Offline, Settings }
     private readonly SettingsService _settingsService = new();
     private readonly OfflineCacheService _offlineCache = new();
     private readonly ObservableCollection<ForumCategory> _forumCategories = [];
@@ -33,6 +34,7 @@ public partial class MainWindow : Window
     private bool _loaded;
     private bool _replyInProgress;
     private List<Post> _currentThreadPosts = [];
+    private string _currentPageTitle = "时间线";
 
     public ObservableCollection<ForumCategory> ForumCategories => _forumCategories;
 
@@ -75,7 +77,6 @@ public partial class MainWindow : Window
         if (resetPage) _page = 1;
         _mode = ViewMode.Timeline;
         ShowPanel(ListViewPanel);
-        TimelinePicker.Visibility = Visibility.Visible;
         BackButton.Visibility = Visibility.Collapsed;
         NewThreadButton.Visibility = Visibility.Visible;
         var selected = _timelines.FirstOrDefault(x => x.Id == _currentTimelineId) ?? _timelines.FirstOrDefault();
@@ -95,7 +96,6 @@ public partial class MainWindow : Window
         _currentForumId = forum.NumericId;
         _mode = ViewMode.Board;
         ShowPanel(ListViewPanel);
-        TimelinePicker.Visibility = Visibility.Collapsed;
         BackButton.Visibility = Visibility.Visible;
         NewThreadButton.Visibility = Visibility.Visible;
         SetHeader(forum.Name, string.IsNullOrWhiteSpace(forum.CleanDescription) ? $"板块 #{forum.Id}" : forum.CleanDescription);
@@ -107,7 +107,6 @@ public partial class MainWindow : Window
         if (resetPage) _page = 1;
         _mode = ViewMode.Feed;
         ShowPanel(ListViewPanel);
-        TimelinePicker.Visibility = Visibility.Collapsed;
         BackButton.Visibility = Visibility.Collapsed;
         NewThreadButton.Visibility = Visibility.Visible;
         SetHeader("我的订阅", "使用本机订阅标识同步的串");
@@ -144,7 +143,7 @@ public partial class MainWindow : Window
             PrepareImages(posts);
             _currentThreadPosts = posts;
             ReplyItems.ItemsSource = posts;
-            PageSubtitle.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
+            PageContextText.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
             PageNumberText.Text = $"第 {_page} 页";
         });
         SetThreadOnlineState(true);
@@ -194,27 +193,7 @@ public partial class MainWindow : Window
 
     private async void TimelineNav_Click(object sender, RoutedEventArgs e) => await ShowTimelineAsync(true);
 
-    private void ForumsNav_Click(object sender, RoutedEventArgs e)
-    {
-        _mode = ViewMode.Forums;
-        ShowPanel(ForumsPanel);
-        BackButton.Visibility = Visibility.Collapsed;
-        NewThreadButton.Visibility = Visibility.Visible;
-        SetHeader("浏览板块", "按分类浏览所有公开板块");
-    }
-
     private async void FeedNav_Click(object sender, RoutedEventArgs e) => await ShowFeedAsync(true);
-
-    private async void NoticeNav_Click(object sender, RoutedEventArgs e)
-    {
-        _mode = ViewMode.Notice;
-        ShowPanel(NoticePanel);
-        BackButton.Visibility = Visibility.Collapsed;
-        NewThreadButton.Visibility = Visibility.Visible;
-        SetHeader("公告", "来自 X 岛的站点公告");
-        var notice = await RunBusyAsync("正在获取公告…", () => _api.GetNoticeAsync());
-        if (notice is not null) NoticeText.Text = notice.Enabled ? notice.CleanContent : "当前没有已发布的公告。";
-    }
 
     private void SettingsNav_Click(object sender, RoutedEventArgs e)
     {
@@ -240,15 +219,15 @@ public partial class MainWindow : Window
 
     private void ShowPanel(UIElement selected)
     {
-        foreach (var panel in new UIElement[] { ListViewPanel, ForumsPanel, ThreadPanel, OfflinePanel, SettingsPanel, NoticePanel })
+        foreach (var panel in new UIElement[] { ListViewPanel, ThreadPanel, OfflinePanel, SettingsPanel })
             panel.Visibility = ReferenceEquals(panel, selected) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void SetHeader(string title, string subtitle)
     {
-        PageTitle.Text = title;
+        _currentPageTitle = title;
         Title = title == "时间线" ? "X 岛" : $"X 岛 · {title}";
-        PageSubtitle.Text = subtitle;
+        PageContextText.Text = subtitle;
     }
 
     private async void ThreadCard_Click(object sender, MouseButtonEventArgs e)
@@ -256,23 +235,17 @@ public partial class MainWindow : Window
         if (sender is Border { Tag: int id }) await OpenThreadAsync(id);
     }
 
-    private void ForumTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    private async void ForumTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (e.NewValue is not ForumInfo forum) return;
+        if (e.NewValue is not ForumInfo { NumericId: > 0 } forum) return;
         _selectedForum = forum;
-        ForumDetailName.Text = forum.Name;
-        ForumDetailDescription.Text = string.IsNullOrWhiteSpace(forum.CleanDescription) ? "暂无板块说明。" : forum.CleanDescription;
-        OpenForumButton.IsEnabled = forum.NumericId > 0;
-    }
-
-    private async void OpenForum_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedForum is not null) await ShowBoardAsync(_selectedForum, true);
+        await ShowBoardAsync(forum, true);
     }
 
     private async void TimelinePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_loaded || TimelinePicker.SelectedItem is not TimelineInfo timeline || _mode != ViewMode.Timeline) return;
+        if (!_loaded || TimelinePicker.SelectedItem is not TimelineInfo timeline) return;
+        if (_mode == ViewMode.Timeline && _currentTimelineId == timeline.Id) return;
         _currentTimelineId = timeline.Id;
         await ShowTimelineAsync(true);
     }
@@ -287,7 +260,6 @@ public partial class MainWindow : Window
             case ViewMode.Board when _selectedForum is not null: await ShowBoardAsync(_selectedForum, false); break;
             case ViewMode.Feed: await ShowFeedAsync(false); break;
             case ViewMode.Thread: await OpenThreadAsync(_currentThreadId, _page); break;
-            case ViewMode.Notice: NoticeNav_Click(this, new RoutedEventArgs()); break;
         }
     }
 
@@ -316,7 +288,7 @@ public partial class MainWindow : Window
             }
         }
         else if (_mode == ViewMode.OfflineThread) ShowOfflineLibrary();
-        else ForumsNav_Click(sender, e);
+        else await ShowTimelineAsync(false);
     }
 
     private async void OnlyPoCheck_Changed(object sender, RoutedEventArgs e)
@@ -456,12 +428,38 @@ public partial class MainWindow : Window
         });
     }
 
+    private async void Image_Click(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not FrameworkElement { Tag: Post post } || string.IsNullOrWhiteSpace(post.ImageUrl)) return;
+        try
+        {
+            var extension = string.IsNullOrWhiteSpace(post.ImageExtension) ? ".jpg" : post.ImageExtension;
+            if (!extension.StartsWith('.')) extension = "." + extension;
+            if (extension.Length > 8 || extension.Any(x => !char.IsLetterOrDigit(x) && x != '.')) extension = ".jpg";
+            var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XIslandFluent", "ImageViewer");
+            Directory.CreateDirectory(folder);
+            var imagePath = Path.Combine(folder, $"No.{post.Id}{extension.ToLowerInvariant()}");
+            if (!File.Exists(imagePath))
+            {
+                var bytes = await _api.DownloadImageAsync(post.ImageUrl);
+                await File.WriteAllBytesAsync(imagePath, bytes);
+            }
+            Process.Start(new ProcessStartInfo(imagePath) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write($"Open image failed post={post.Id}", ex);
+            ShowTransientStatus($"无法打开图片：{ex.Message}");
+        }
+    }
+
     private async void CacheCurrentThread_Click(object sender, RoutedEventArgs e)
     {
         if (_currentThreadId <= 0 || _currentThreadPosts.Count == 0) return;
         await RunBusyAsync("正在缓存串与图片…", async () =>
         {
-            await _offlineCache.SaveAsync(_currentThreadId, PageTitle.Text, _currentThreadPosts, url => _api.DownloadImageAsync(url));
+            await _offlineCache.SaveAsync(_currentThreadId, _currentPageTitle, _currentThreadPosts, url => _api.DownloadImageAsync(url));
             ShowTransientStatus($"No.{_currentThreadId} 已保存到离线缓存");
         });
     }
