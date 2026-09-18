@@ -1,0 +1,28 @@
+# Build output
+bin/
+obj/
+release/
+dist/
+
+# Visual QA and temporary artifacts
+qa/
+*.user
+*.suo
+*.tmp
+
+# IDE state
+.vs/
+.idea/
+.vscode/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local application data and secrets are stored outside the repository,
+# but keep these patterns blocked if copied into the project accidentally.
+settings.json
+*.log
+Cookies
+WebView2/

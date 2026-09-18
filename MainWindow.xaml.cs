@@ -1,0 +1,499 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using Microsoft.Win32;
+using XIslandFluent.Models;
+using XIslandFluent.Services;
+
+namespace XIslandFluent;
+
+public partial class MainWindow : Window
+{
+    private enum ViewMode { Timeline, Board, Feed, Thread, Forums, Settings, Notice }
+    private readonly SettingsService _settingsService = new();
+    private readonly ObservableCollection<ForumCategory> _forumCategories = [];
+    private readonly ObservableCollection<TimelineInfo> _timelines = [];
+    private AppSettings _settings;
+    private XIslandApiService _api;
+    private ViewMode _mode = ViewMode.Timeline;
+    private ViewMode _returnMode = ViewMode.Timeline;
+    private int _page = 1;
+    private int _currentForumId;
+    private int _currentTimelineId = 1;
+    private int _currentThreadId;
+    private string? _replyImagePath;
+    private ForumInfo? _selectedForum;
+    private bool _loaded;
+    private bool _replyInProgress;
+
+    public ObservableCollection<ForumCategory> ForumCategories => _forumCategories;
+
+    public MainWindow()
+    {
+        _settings = _settingsService.Load();
+        _api = new XIslandApiService(_settings);
+        InitializeComponent();
+        DataContext = this;
+        Loaded += MainWindow_Loaded;
+        SourceInitialized += (_, _) => ApplyWindowBackdrop();
+        StateChanged += (_, _) => ApplyWindowBackdrop();
+        Closing += (_, _) => _api.Dispose();
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (_loaded) return;
+        _loaded = true;
+        LoadSettingsIntoControls();
+        ApplyTheme(_settings.Theme);
+        await RunBusyAsync("正在连接 X 岛…", async () =>
+        {
+            await _api.InitializeAsync();
+            var forumTask = _api.GetForumsAsync();
+            var timelineTask = _api.GetTimelinesAsync();
+            await Task.WhenAll(forumTask, timelineTask);
+            _forumCategories.Clear();
+            foreach (var category in forumTask.Result) _forumCategories.Add(category);
+            _timelines.Clear();
+            foreach (var timeline in timelineTask.Result) _timelines.Add(timeline);
+            TimelinePicker.ItemsSource = _timelines;
+            TimelinePicker.SelectedItem = _timelines.FirstOrDefault();
+        });
+        await ShowTimelineAsync(resetPage: true);
+    }
+
+    private async Task ShowTimelineAsync(bool resetPage)
+    {
+        if (resetPage) _page = 1;
+        _mode = ViewMode.Timeline;
+        ShowPanel(ListViewPanel);
+        TimelinePicker.Visibility = Visibility.Visible;
+        BackButton.Visibility = Visibility.Collapsed;
+        NewThreadButton.Visibility = Visibility.Visible;
+        var selected = _timelines.FirstOrDefault(x => x.Id == _currentTimelineId) ?? _timelines.FirstOrDefault();
+        if (selected is not null)
+        {
+            _currentTimelineId = selected.Id;
+            if (!ReferenceEquals(TimelinePicker.SelectedItem, selected)) TimelinePicker.SelectedItem = selected;
+            SetHeader(selected.ToString(), string.IsNullOrWhiteSpace(selected.NoticeHtml) ? "来自全岛的最新内容" : HtmlText.Clean(selected.NoticeHtml));
+        }
+        await LoadThreadListAsync(() => _api.GetTimelineAsync(_currentTimelineId, _page));
+    }
+
+    private async Task ShowBoardAsync(ForumInfo forum, bool resetPage)
+    {
+        if (resetPage) _page = 1;
+        _selectedForum = forum;
+        _currentForumId = forum.NumericId;
+        _mode = ViewMode.Board;
+        ShowPanel(ListViewPanel);
+        TimelinePicker.Visibility = Visibility.Collapsed;
+        BackButton.Visibility = Visibility.Visible;
+        NewThreadButton.Visibility = Visibility.Visible;
+        SetHeader(forum.Name, string.IsNullOrWhiteSpace(forum.CleanDescription) ? $"板块 #{forum.Id}" : forum.CleanDescription);
+        await LoadThreadListAsync(() => _api.GetBoardAsync(_currentForumId, _page));
+    }
+
+    private async Task ShowFeedAsync(bool resetPage)
+    {
+        if (resetPage) _page = 1;
+        _mode = ViewMode.Feed;
+        ShowPanel(ListViewPanel);
+        TimelinePicker.Visibility = Visibility.Collapsed;
+        BackButton.Visibility = Visibility.Collapsed;
+        NewThreadButton.Visibility = Visibility.Visible;
+        SetHeader("我的订阅", "使用本机订阅标识同步的串");
+        await LoadThreadListAsync(async () => (await _api.GetFeedAsync(_settings.SubscriptionId, _page)).Cast<Post>().ToList());
+    }
+
+    private async Task LoadThreadListAsync(Func<Task<List<Post>>> loader)
+    {
+        await RunBusyAsync("正在加载内容…", async () =>
+        {
+            var posts = await loader();
+            PrepareImages(posts);
+            ThreadItems.ItemsSource = posts;
+            PageNumberText.Text = $"第 {_page} 页";
+            if (posts.Count == 0) ShowTransientStatus("这一页暂时没有内容");
+        });
+    }
+
+    private async Task OpenThreadAsync(int threadId, int page = 1)
+    {
+        if (_mode != ViewMode.Thread) _returnMode = _mode;
+        _currentThreadId = threadId;
+        _page = page;
+        _mode = ViewMode.Thread;
+        ShowPanel(ThreadPanel);
+        BackButton.Visibility = Visibility.Visible;
+        NewThreadButton.Visibility = Visibility.Visible;
+        SetHeader($"No.{threadId}", "串内容与回复");
+        await RunBusyAsync("正在加载串…", async () =>
+        {
+            var thread = await _api.GetThreadAsync(threadId, _page, OnlyPoCheck.IsChecked == true);
+            var posts = new List<Post> { thread };
+            posts.AddRange(thread.Replies ?? []);
+            PrepareImages(posts);
+            ReplyItems.ItemsSource = posts;
+            PageSubtitle.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
+            PageNumberText.Text = $"第 {_page} 页";
+        });
+    }
+
+    private void PrepareImages(IEnumerable<Post> posts)
+    {
+        var pending = new Stack<Post>(posts.Reverse());
+        var visited = new HashSet<Post>(ReferenceEqualityComparer.Instance);
+        while (pending.Count > 0)
+        {
+            var post = pending.Pop();
+            if (!visited.Add(post)) continue;
+            post.ImageUrl = _api.GetImageUrl(post);
+            post.ThumbnailUrl = _api.GetImageUrl(post, true);
+            if (post.Replies is null) continue;
+            foreach (var reply in post.Replies) pending.Push(reply);
+        }
+    }
+
+    private async Task RunBusyAsync(string text, Func<Task> action)
+    {
+        StatusText.Text = text;
+        StatusBar.Visibility = Visibility.Visible;
+        BusyIndicator.Visibility = Visibility.Visible;
+        try { await action(); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write($"RunBusyAsync failed: {text}", ex);
+            StatusText.Text = ex.Message;
+            BusyIndicator.Visibility = Visibility.Collapsed;
+            return;
+        }
+        StatusBar.Visibility = Visibility.Collapsed;
+    }
+
+    private async Task<T?> RunBusyAsync<T>(string text, Func<Task<T>> action)
+    {
+        T? result = default;
+        await RunBusyAsync(text, async () =>
+        {
+            result = await action();
+        });
+        return result;
+    }
+
+    private async void TimelineNav_Click(object sender, RoutedEventArgs e) => await ShowTimelineAsync(true);
+
+    private void ForumsNav_Click(object sender, RoutedEventArgs e)
+    {
+        _mode = ViewMode.Forums;
+        ShowPanel(ForumsPanel);
+        BackButton.Visibility = Visibility.Collapsed;
+        NewThreadButton.Visibility = Visibility.Visible;
+        SetHeader("浏览板块", "按分类浏览所有公开板块");
+    }
+
+    private async void FeedNav_Click(object sender, RoutedEventArgs e) => await ShowFeedAsync(true);
+
+    private async void NoticeNav_Click(object sender, RoutedEventArgs e)
+    {
+        _mode = ViewMode.Notice;
+        ShowPanel(NoticePanel);
+        BackButton.Visibility = Visibility.Collapsed;
+        NewThreadButton.Visibility = Visibility.Visible;
+        SetHeader("公告", "来自 X 岛的站点公告");
+        var notice = await RunBusyAsync("正在获取公告…", () => _api.GetNoticeAsync());
+        if (notice is not null) NoticeText.Text = notice.Enabled ? notice.CleanContent : "当前没有已发布的公告。";
+    }
+
+    private void SettingsNav_Click(object sender, RoutedEventArgs e)
+    {
+        _mode = ViewMode.Settings;
+        ShowPanel(SettingsPanel);
+        BackButton.Visibility = Visibility.Collapsed;
+        NewThreadButton.Visibility = Visibility.Collapsed;
+        SetHeader("设置", "管理身份、订阅同步和外观");
+        LoadSettingsIntoControls();
+    }
+
+    private void ShowPanel(UIElement selected)
+    {
+        foreach (var panel in new UIElement[] { ListViewPanel, ForumsPanel, ThreadPanel, SettingsPanel, NoticePanel })
+            panel.Visibility = ReferenceEquals(panel, selected) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void SetHeader(string title, string subtitle)
+    {
+        PageTitle.Text = title;
+        TitleBarText.Text = title;
+        PageSubtitle.Text = subtitle;
+    }
+
+    private async void ThreadCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border { Tag: int id }) await OpenThreadAsync(id);
+    }
+
+    private void ForumTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is not ForumInfo forum) return;
+        _selectedForum = forum;
+        ForumDetailName.Text = forum.Name;
+        ForumDetailDescription.Text = string.IsNullOrWhiteSpace(forum.CleanDescription) ? "暂无板块说明。" : forum.CleanDescription;
+        OpenForumButton.IsEnabled = forum.NumericId > 0;
+    }
+
+    private async void OpenForum_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedForum is not null) await ShowBoardAsync(_selectedForum, true);
+    }
+
+    private async void TimelinePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_loaded || TimelinePicker.SelectedItem is not TimelineInfo timeline || _mode != ViewMode.Timeline) return;
+        _currentTimelineId = timeline.Id;
+        await ShowTimelineAsync(true);
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshCurrentAsync();
+
+    private async Task RefreshCurrentAsync()
+    {
+        switch (_mode)
+        {
+            case ViewMode.Timeline: await ShowTimelineAsync(false); break;
+            case ViewMode.Board when _selectedForum is not null: await ShowBoardAsync(_selectedForum, false); break;
+            case ViewMode.Feed: await ShowFeedAsync(false); break;
+            case ViewMode.Thread: await OpenThreadAsync(_currentThreadId, _page); break;
+            case ViewMode.Notice: NoticeNav_Click(this, new RoutedEventArgs()); break;
+        }
+    }
+
+    private async void PreviousPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_page <= 1) return;
+        _page--;
+        await RefreshCurrentAsync();
+    }
+
+    private async void NextPage_Click(object sender, RoutedEventArgs e)
+    {
+        _page++;
+        await RefreshCurrentAsync();
+    }
+
+    private async void Back_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mode == ViewMode.Thread)
+        {
+            switch (_returnMode)
+            {
+                case ViewMode.Board when _selectedForum is not null: await ShowBoardAsync(_selectedForum, false); break;
+                case ViewMode.Feed: await ShowFeedAsync(false); break;
+                default: await ShowTimelineAsync(false); break;
+            }
+        }
+        else ForumsNav_Click(sender, e);
+    }
+
+    private async void OnlyPoCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_mode == ViewMode.Thread) await OpenThreadAsync(_currentThreadId, 1);
+    }
+
+    private void ChooseReplyImage_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new OpenFileDialog { Title = "选择图片", Filter = "图片|*.jpg;*.jpeg;*.png;*.gif;*.webp;*.bmp|所有文件|*.*" };
+        if (picker.ShowDialog(this) == true)
+        {
+            _replyImagePath = picker.FileName;
+            ShowTransientStatus($"已选择图片：{System.IO.Path.GetFileName(_replyImagePath)}");
+        }
+    }
+
+    private async void SendReply_Click(object sender, RoutedEventArgs e)
+    {
+        if (_replyInProgress) return;
+        if (string.IsNullOrWhiteSpace(ReplyBox.Text) && string.IsNullOrWhiteSpace(_replyImagePath))
+        {
+            ShowTransientStatus("回复内容和图片不能同时为空");
+            return;
+        }
+        _replyInProgress = true;
+        SendReplyButton.IsEnabled = false;
+        var content = ReplyBox.Text.Trim();
+        try
+        {
+            DiagnosticsLog.Write($"Reply begin thread={_currentThreadId} contentLength={content.Length} hasImage={!string.IsNullOrWhiteSpace(_replyImagePath)}");
+            var result = await RunBusyAsync("正在发送回复…", () => _api.ReplyAsync(_currentThreadId, content, _replyImagePath, _settings.WatermarkImages));
+            if (result is null) return;
+            DiagnosticsLog.Write($"Reply accepted thread={_currentThreadId}; refreshing page={_page}");
+            ReplyBox.Clear();
+            _replyImagePath = null;
+            ShowTransientStatus(string.IsNullOrWhiteSpace(result) ? "回复已发送" : result);
+            await OpenThreadAsync(_currentThreadId, _page);
+            DiagnosticsLog.Write($"Reply refresh complete thread={_currentThreadId}");
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write($"Reply UI failed thread={_currentThreadId}", ex);
+            ShowTransientStatus($"回复失败：{ex.Message}");
+        }
+        finally
+        {
+            _replyInProgress = false;
+            SendReplyButton.IsEnabled = true;
+        }
+    }
+
+    private void Quote_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Post post })
+        {
+            ReplyBox.Text = $">>No.{post.Id}\n{ReplyBox.Text}";
+            ReplyBox.Focus();
+            ReplyBox.CaretIndex = ReplyBox.Text.Length;
+        }
+    }
+
+    private async void Reference_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: int id }) return;
+        var post = await RunBusyAsync("正在查看引用…", () => _api.GetReferenceAsync(id));
+        if (post is not null) MessageBox.Show(this, $"No.{post.Id} · {post.Author}\n{post.Time}\n\n{post.CleanContent}", "引用内容", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private async void SubscribeCurrent_Click(object sender, RoutedEventArgs e)
+    {
+        var result = await RunBusyAsync("正在添加订阅…", () => _api.AddFeedAsync(_settings.SubscriptionId, _currentThreadId));
+        if (result is not null) ShowTransientStatus(string.IsNullOrWhiteSpace(result) ? "订阅成功" : result);
+    }
+
+    private async void UnsubscribeCurrent_Click(object sender, RoutedEventArgs e)
+    {
+        var result = await RunBusyAsync("正在取消订阅…", () => _api.DeleteFeedAsync(_settings.SubscriptionId, _currentThreadId));
+        if (result is not null) ShowTransientStatus(string.IsNullOrWhiteSpace(result) ? "已取消订阅" : result);
+    }
+
+    private async void NewThread_Click(object sender, RoutedEventArgs e)
+    {
+        var forums = _forumCategories.SelectMany(x => x.Forums).Where(x => x.NumericId > 0).ToList();
+        var dialog = new ComposerWindow(forums, _selectedForum, _settings.WatermarkImages) { Owner = this };
+        if (dialog.ShowDialog() != true || dialog.SelectedForum is null) return;
+        var result = await RunBusyAsync("正在发表新串…", () => _api.CreateThreadAsync(dialog.SelectedForum.NumericId, dialog.PostTitle, dialog.PostContent, dialog.ImagePath, dialog.AddWatermark));
+        if (result is not null)
+        {
+            ShowTransientStatus(string.IsNullOrWhiteSpace(result) ? "发表成功" : result);
+            await ShowBoardAsync(dialog.SelectedForum, true);
+        }
+    }
+
+    private async void QuickOpenBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        var raw = QuickOpenBox.Text.Trim().Replace("No.", "", StringComparison.OrdinalIgnoreCase).Replace(">>", "");
+        if (int.TryParse(raw, out var id) && id > 0) await OpenThreadAsync(id);
+        else ShowTransientStatus("请输入有效串号，例如 50000002");
+    }
+
+    private void SaveSettings_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.SubscriptionId = SubscriptionIdBox.Text.Trim();
+        _settings.Cookie = CookieBox.Password.Trim();
+        _settings.Theme = (ThemePicker.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
+        _settings.WatermarkImages = WatermarkCheck.IsChecked == true;
+        if (string.IsNullOrWhiteSpace(_settings.SubscriptionId)) _settings.SubscriptionId = Guid.NewGuid().ToString();
+        _settingsService.Save(_settings);
+        _api.UpdateSettings(_settings);
+        ApplyTheme(_settings.Theme);
+        LoadSettingsIntoControls();
+        ShowTransientStatus("设置已保存到本机");
+    }
+
+    private void LoadSettingsIntoControls()
+    {
+        if (SubscriptionIdBox is null) return;
+        SubscriptionIdBox.Text = _settings.SubscriptionId;
+        CookieBox.Password = _settings.Cookie;
+        CookieStatusText.Text = string.IsNullOrWhiteSpace(_settings.Cookie) ? "尚未获取" : "已保存饼干";
+        WatermarkCheck.IsChecked = _settings.WatermarkImages;
+        ThemePicker.SelectedIndex = _settings.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 };
+    }
+
+    private void ShowTransientStatus(string message)
+    {
+        StatusText.Text = message;
+        BusyIndicator.Visibility = Visibility.Collapsed;
+        StatusBar.Visibility = Visibility.Visible;
+    }
+
+    private void ImportCookie_Click(object sender, RoutedEventArgs e)
+    {
+        var browser = new BrowserCookieWindow { Owner = this };
+        browser.CookieCaptured += async (_, cookieHeader) =>
+        {
+            _settings.Cookie = cookieHeader;
+            _settingsService.Save(_settings);
+            _api.UpdateSettings(_settings);
+            CookieBox.Password = cookieHeader;
+            CookieStatusText.Text = "饼干已自动更新";
+            ShowTransientStatus("已从用户系统更新饼干，后续请求将立即使用新饼干");
+            await RefreshCurrentAsync();
+        };
+        browser.ShowDialog();
+    }
+
+    private void ApplyTheme(string theme)
+    {
+        var useDark = theme == "Dark" || (theme == "System" && IsSystemDarkMode());
+        var resources = Application.Current.Resources;
+        resources["TextColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#FFFFFF" : "#1A1A1A");
+        resources["SubtleTextColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#CFCFCF" : "#616161");
+        resources["SurfaceColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#202020" : "#F9F9F9");
+        resources["CardColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#2B2B2B" : "#FDFDFD");
+        resources["LayerColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#272727" : "#F3F3F3");
+        resources["StrokeColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#28FFFFFF" : "#16000000");
+        resources["HoverColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#12FFFFFF" : "#0A000000");
+        resources["PressedColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#18FFFFFF" : "#0F000000");
+        ApplyWindowBackdrop();
+    }
+
+    private static bool IsSystemDarkMode()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
+        }
+        catch { return false; }
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2) WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+        else if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void ApplyWindowBackdrop()
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero) return;
+        var dark = _settings.Theme == "Dark" || (_settings.Theme == "System" && IsSystemDarkMode());
+        var darkValue = dark ? 1 : 0;
+        DwmSetWindowAttribute(handle, 20, ref darkValue, sizeof(int));
+        var backdrop = 2; // DWMSBT_MAINWINDOW (Mica)
+        DwmSetWindowAttribute(handle, 38, ref backdrop, sizeof(int));
+        var corner = 2; // DWMWCP_ROUND
+        DwmSetWindowAttribute(handle, 33, ref corner, sizeof(int));
+    }
+
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+}
