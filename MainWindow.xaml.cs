@@ -135,18 +135,29 @@ public partial class MainWindow : Window
         BackButton.Visibility = Visibility.Visible;
         NewThreadButton.Visibility = Visibility.Visible;
         SetHeader($"No.{threadId}", "串内容与回复");
-        await RunBusyAsync("正在加载串…", async () =>
+        ReplyItems.ItemsSource = null;
+        _currentThreadPosts = [];
+        ReplyComposer.Visibility = Visibility.Collapsed;
+        ThreadLoadingOverlay.Visibility = Visibility.Visible;
+        try
         {
-            var thread = await _api.GetThreadAsync(threadId, _page, OnlyPoCheck.IsChecked == true);
-            var posts = new List<Post> { thread };
-            posts.AddRange(thread.Replies ?? []);
-            PrepareImages(posts);
-            _currentThreadPosts = posts;
-            ReplyItems.ItemsSource = posts;
-            PageContextText.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
-            PageNumberText.Text = $"第 {_page} 页";
-        });
-        SetThreadOnlineState(true);
+            await RunBusyAsync("正在加载串…", async () =>
+            {
+                var thread = await _api.GetThreadAsync(threadId, _page, OnlyPoCheck.IsChecked == true);
+                var posts = new List<Post> { thread };
+                posts.AddRange(thread.Replies ?? []);
+                PrepareImages(posts);
+                _currentThreadPosts = posts;
+                ReplyItems.ItemsSource = posts;
+                PageContextText.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
+                PageNumberText.Text = $"第 {_page} 页";
+            });
+        }
+        finally
+        {
+            ThreadLoadingOverlay.Visibility = Visibility.Collapsed;
+            SetThreadOnlineState(true);
+        }
     }
 
     private void PrepareImages(IEnumerable<Post> posts)
@@ -191,8 +202,6 @@ public partial class MainWindow : Window
         return result;
     }
 
-    private async void TimelineNav_Click(object sender, RoutedEventArgs e) => await ShowTimelineAsync(true);
-
     private async void FeedNav_Click(object sender, RoutedEventArgs e) => await ShowFeedAsync(true);
 
     private void SettingsNav_Click(object sender, RoutedEventArgs e)
@@ -227,7 +236,7 @@ public partial class MainWindow : Window
     {
         _currentPageTitle = title;
         Title = title == "时间线" ? "X 岛" : $"X 岛 · {title}";
-        PageContextText.Text = subtitle;
+        PageContextText.Text = subtitle.Replace("\r", " ").Replace("\n", " · ");
     }
 
     private async void ThreadCard_Click(object sender, MouseButtonEventArgs e)
@@ -235,17 +244,20 @@ public partial class MainWindow : Window
         if (sender is Border { Tag: int id }) await OpenThreadAsync(id);
     }
 
-    private async void ForumTree_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    private async void ForumTree_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (e.NewValue is not ForumInfo { NumericId: > 0 } forum) return;
+        if (e.OriginalSource is not DependencyObject source) return;
+        DependencyObject? current = source;
+        while (current is not null && current is not TreeViewItem) current = VisualTreeHelper.GetParent(current);
+        if (current is not TreeViewItem { DataContext: ForumInfo { NumericId: > 0 } forum }) return;
+        e.Handled = true;
         _selectedForum = forum;
         await ShowBoardAsync(forum, true);
     }
 
-    private async void TimelinePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void TimelinePicker_DropDownClosed(object sender, EventArgs e)
     {
         if (!_loaded || TimelinePicker.SelectedItem is not TimelineInfo timeline) return;
-        if (_mode == ViewMode.Timeline && _currentTimelineId == timeline.Id) return;
         _currentTimelineId = timeline.Id;
         await ShowTimelineAsync(true);
     }

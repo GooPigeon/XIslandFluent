@@ -31,7 +31,10 @@
                     </StackPanel>
                     <Border Grid.Column="1" Width="112" Height="82" CornerRadius="6" ClipToBounds="True" Background="{DynamicResource LayerBrush}"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
-                        <Image Source="{Binding ThumbnailUrl}" Stretch="UniformToFill" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click"/>
+                        <Grid>
+                            <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource SubtleTextBrush}" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip="图片加载中"/>
+                            <Image Source="{Binding ThumbnailUrl, IsAsync=True}" Stretch="UniformToFill" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click"/>
+                        </Grid>
                     </Border>
                 </Grid>
             </Border>
@@ -55,7 +58,13 @@
                     <TextBlock Text="{Binding CleanContent}" Margin="0,10,0,0" LineHeight="22" TextWrapping="Wrap"/>
                     <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
-                        <Image Source="{Binding ImageUrl}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
+                        <Grid MinWidth="180" MinHeight="100" Background="{DynamicResource LayerBrush}">
+                            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource SubtleTextBrush}" FontSize="24" HorizontalAlignment="Center"/>
+                                <TextBlock Text="图片加载中" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,6,0,0"/>
+                            </StackPanel>
+                            <Image Source="{Binding ImageUrl, IsAsync=True}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
+                        </Grid>
                     </Border>
                 </StackPanel>
             </Border>
@@ -81,18 +90,14 @@
                     </Grid>
                     <StackPanel Grid.Row="2" Margin="0,0,0,8">
                         <TextBlock Text="时间线" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="4,0,0,5"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                            <ComboBox x:Name="TimelinePicker" SelectionChanged="TimelinePicker_SelectionChanged" DisplayMemberPath="DisplayName"/>
-                            <Button Grid.Column="1" Style="{StaticResource FluentButton}" Content="打开" Padding="10,5" MinHeight="30" Margin="6,0,0,0" Click="TimelineNav_Click"/>
-                        </Grid>
+                        <ComboBox x:Name="TimelinePicker" DropDownClosed="TimelinePicker_DropDownClosed" DisplayMemberPath="DisplayName"/>
                     </StackPanel>
                     <StackPanel Grid.Row="3">
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="FeedNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE734;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="我的订阅"/></StackPanel></Button>
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="OfflineNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="离线缓存"/></StackPanel></Button>
                     </StackPanel>
                     <TextBlock Grid.Row="4" Text="浏览板块" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="4,8,0,5"/>
-                    <TreeView Grid.Row="5" x:Name="ForumTree" ItemsSource="{Binding ForumCategories}" SelectedItemChanged="ForumTree_SelectedItemChanged" Background="Transparent" BorderThickness="0">
+                    <TreeView Grid.Row="5" x:Name="ForumTree" ItemsSource="{Binding ForumCategories}" PreviewMouseLeftButtonUp="ForumTree_PreviewMouseLeftButtonUp" Background="Transparent" BorderThickness="0">
                         <TreeView.ItemContainerStyle>
                             <Style TargetType="TreeViewItem"><Setter Property="IsExpanded" Value="True"/></Style>
                         </TreeView.ItemContainerStyle>
@@ -105,10 +110,10 @@
                 <Grid.RowDefinitions><RowDefinition Height="52"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border Grid.Row="0" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1" Background="#08FFFFFF">
                     <Grid Margin="24,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="PageContextText" Text="来自全岛的最新内容" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                            <Button x:Name="BackButton" Style="{StaticResource FluentButton}" Content="返回" Click="Back_Click" Visibility="Collapsed" Margin="0,0,8,0"/>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" x:Name="BackButton" Style="{StaticResource FluentButton}" Content="返回" Click="Back_Click" Visibility="Collapsed" Margin="0,0,12,0"/>
+                        <TextBlock Grid.Column="1" x:Name="PageContextText" Text="来自全岛的最新内容" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button Style="{StaticResource FluentButton}" Content="刷新" Click="Refresh_Click" Margin="0,0,8,0"/>
                             <Button x:Name="NewThreadButton" Style="{StaticResource AccentButton}" Content="发新串" Click="NewThread_Click"/>
                         </StackPanel>
@@ -152,6 +157,15 @@
                             <Button Grid.Column="1" Style="{StaticResource FluentButton}" Content="添加图片" Click="ChooseReplyImage_Click" Margin="8,0"/>
                             <Button x:Name="SendReplyButton" Grid.Column="2" Style="{StaticResource AccentButton}" Content="发送回复" Click="SendReply_Click"/>
                         </Grid>
+                        <Border x:Name="ThreadLoadingOverlay" Grid.RowSpan="3" Panel.ZIndex="20" Background="{DynamicResource SurfaceBrush}" Visibility="Collapsed">
+                            <Border Style="{StaticResource CardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" MinWidth="280">
+                                <StackPanel>
+                                    <TextBlock Text="正在打开串…" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                                    <ProgressBar IsIndeterminate="True" Height="4" Margin="0,16,0,0"/>
+                                    <TextBlock Text="正文加载完成后，图片会继续在后台显示" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,10,0,0" HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                        </Border>
                     </Grid>
 
                     <Grid x:Name="OfflinePanel" Visibility="Collapsed">
