@@ -72,8 +72,20 @@ internal static class Program
                     ?? throw new MissingMethodException("ReferenceLink_MouseEnter");
                 mouseEnter.Invoke(window, [localReference, new MouseEventArgs(Mouse.PrimaryDevice, 0)]);
                 updateArrows.Invoke(window, null);
-                if (!arrowCanvas.Children.OfType<Border>().Any(x => x.Visibility == Visibility.Visible))
+                var targetHighlight = Descendants<Border>(replies).FirstOrDefault(x => x.Uid == "ReferenceHighlight" && x.Visibility == Visibility.Visible);
+                if (targetHighlight is null)
                     throw new InvalidOperationException("悬停引用时没有高亮屏幕内目标");
+                var highlightParent = VisualTreeHelper.GetParent(targetHighlight) as Visual
+                    ?? throw new InvalidOperationException("高亮层缺少视觉父级");
+                var highlightPosition = targetHighlight.TransformToAncestor(highlightParent).Transform(new Point(0, 0));
+                var replyScrollForHighlight = (ScrollViewer)(window.FindName("ReplyScrollViewer") ?? throw new InvalidOperationException("ReplyScrollViewer not found"));
+                replyScrollForHighlight.ScrollToVerticalOffset(12);
+                window.UpdateLayout();
+                var scrolledHighlightPosition = targetHighlight.TransformToAncestor(highlightParent).Transform(new Point(0, 0));
+                if (highlightPosition != scrolledHighlightPosition)
+                    throw new InvalidOperationException("滚动时引用目标高亮相对卡片发生错位");
+                replyScrollForHighlight.ScrollToTop();
+                window.UpdateLayout();
                 var tooltip = (ToolTip)(localReference.ToolTip ?? throw new InvalidOperationException("引用悬浮窗缺失"));
                 tooltip.IsOpen = true;
                 var mouseLeave = typeof(MainWindow).GetMethod("ReferenceLink_MouseLeave", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -82,14 +94,33 @@ internal static class Program
                 if (tooltip.IsOpen) throw new InvalidOperationException("引用悬浮窗离开后仍未关闭");
                 updateArrows.Invoke(window, null);
                 await Task.Delay(240);
-                if (arrowCanvas.Children.OfType<Border>().Any(x => x.Visibility == Visibility.Visible && x.Opacity > 0.01))
+                if (Descendants<Border>(replies).Any(x => x.Uid == "ReferenceHighlight" && x.Visibility == Visibility.Visible && x.Opacity > 0.01))
                     throw new InvalidOperationException("引用目标高亮没有渐出消失");
 
                 var replyScroll = (ScrollViewer)(window.FindName("ReplyScrollViewer") ?? throw new InvalidOperationException("ReplyScrollViewer not found"));
                 var sourceOwner = Descendants<TextBlock>(replies).First(x => x.Inlines.Contains(localReference));
                 var sourceRect = localReference.ContentStart.GetCharacterRect(LogicalDirection.Forward);
                 var sourceY = sourceOwner.TransformToVisual(arrowCanvas).Transform(new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2)).Y;
-                replyScroll.ScrollToVerticalOffset(replyScroll.VerticalOffset + sourceY + 80);
+                var targetId = (int)(localReference.Tag ?? throw new InvalidOperationException("引用目标编号缺失"));
+                var targetPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.Id == targetId);
+                var targetContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(targetPost) ?? throw new InvalidOperationException("引用目标容器缺失"));
+                var targetCard = Descendants<Border>(targetContainer).First(x => x.Tag is int id && id == targetId);
+                var targetTop = targetCard.TransformToVisual(arrowCanvas).Transform(new Point(0, 0)).Y;
+                var edgeOffset = targetTop < sourceY
+                    ? targetTop + targetCard.ActualHeight + 4
+                    : targetTop - replyScroll.ViewportHeight - 4;
+                replyScroll.ScrollToVerticalOffset(Math.Max(0, edgeOffset));
+                window.UpdateLayout();
+                updateArrows.Invoke(window, null);
+                var edgeGeometry = arrowPath.Data as PathGeometry ?? throw new InvalidOperationException("屏幕边缘箭头几何缺失");
+                var edgeLine = edgeGeometry.Figures[0].Segments.LastOrDefault() as LineSegment
+                    ?? throw new InvalidOperationException("屏外目标没有使用纯竖直线段");
+                var arrowHead = referenceVisual.GetType().GetProperty("ArrowHead")?.GetValue(referenceVisual) as System.Windows.Shapes.Polygon
+                    ?? throw new InvalidOperationException("屏幕边缘箭头缺失");
+                var arrowTipY = arrowHead.Points.Min(x => x.Y);
+                if (edgeLine.Point.Y <= arrowTipY + 2)
+                    throw new InvalidOperationException("屏幕边缘线段越过了箭头三角");
+                replyScroll.ScrollToVerticalOffset(sourceY + 80);
                 window.UpdateLayout();
                 updateArrows.Invoke(window, null);
                 var arrowVisible = (bool)(referenceVisual.GetType().GetProperty("ArrowVisible")?.GetValue(referenceVisual) ?? true);

@@ -599,7 +599,7 @@ public partial class MainWindow : Window
                 }
                 else SetArrowVisible(reference, false);
 
-                UpdateReferenceHighlight(reference, targetCard, targetTopLeft, targetOnScreen);
+                UpdateReferenceHighlight(reference, targetElement, targetOnScreen);
             }
             catch (InvalidOperationException)
             {
@@ -618,33 +618,44 @@ public partial class MainWindow : Window
     {
         EnsureArrow(reference);
         const double endpointX = 20;
-        var laneX = 6 + reference.ColorIndex % 3 * 5;
+        const double arrowBaseX = 12;
+        var laneX = 4 + reference.ColorIndex % 3 * 3;
         var geometry = new PathGeometry();
         PathFigure figure;
         PointCollection arrowPoints;
 
         if (sourceOnScreen && targetOnScreen)
         {
+            var direction = targetY < sourceY ? -1d : 1d;
+            var span = Math.Abs(targetY - sourceY);
+            var radius = Math.Min(18, Math.Max(2, span / 3));
+            radius = Math.Min(radius, span / 2);
             figure = new PathFigure { StartPoint = new Point(endpointX, sourceY), IsClosed = false };
-            figure.Segments.Add(new BezierSegment(new Point(laneX, sourceY), new Point(laneX, targetY), new Point(endpointX, targetY), true));
+            figure.Segments.Add(new BezierSegment(
+                new Point(endpointX - 6, sourceY), new Point(laneX, sourceY + direction * radius / 2), new Point(laneX, sourceY + direction * radius), true));
+            figure.Segments.Add(new LineSegment(new Point(laneX, targetY - direction * radius), true));
+            figure.Segments.Add(new BezierSegment(
+                new Point(laneX, targetY - direction * radius / 2), new Point(arrowBaseX - 2, targetY), new Point(arrowBaseX, targetY), true));
             arrowPoints = RightArrow(endpointX, targetY);
         }
         else if (sourceOnScreen)
         {
             var edgeY = targetY < 0 ? 1d : height - 1;
             var direction = targetY < 0 ? -1d : 1d;
-            figure = new PathFigure { StartPoint = new Point(endpointX, sourceY), IsClosed = false };
-            figure.Segments.Add(new BezierSegment(new Point(laneX, sourceY), new Point(laneX, sourceY + direction * 14), new Point(laneX, sourceY + direction * 24), true));
-            figure.Segments.Add(new LineSegment(new Point(laneX, edgeY), true));
+            var arrowBaseY = edgeY - direction * 8;
+            figure = new PathFigure { StartPoint = new Point(laneX, sourceY), IsClosed = false };
+            figure.Segments.Add(new LineSegment(new Point(laneX, arrowBaseY), true));
             arrowPoints = VerticalArrow(laneX, edgeY, direction);
         }
         else
         {
             var edgeY = sourceY < 0 ? 1d : height - 1;
             var direction = sourceY < 0 ? 1d : -1d;
+            var radius = Math.Min(18, Math.Abs(targetY - edgeY) / 2);
             figure = new PathFigure { StartPoint = new Point(laneX, edgeY), IsClosed = false };
-            figure.Segments.Add(new LineSegment(new Point(laneX, targetY - direction * 24), true));
-            figure.Segments.Add(new BezierSegment(new Point(laneX, targetY - direction * 14), new Point(laneX, targetY), new Point(endpointX, targetY), true));
+            figure.Segments.Add(new LineSegment(new Point(laneX, targetY - direction * radius), true));
+            figure.Segments.Add(new BezierSegment(
+                new Point(laneX, targetY - direction * radius / 2), new Point(arrowBaseX - 2, targetY), new Point(arrowBaseX, targetY), true));
             arrowPoints = RightArrow(endpointX, targetY);
         }
         geometry.Figures.Add(figure);
@@ -665,7 +676,7 @@ public partial class MainWindow : Window
         reference.Path = new System.Windows.Shapes.Path
         {
             Stroke = brush, StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round,
-            StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+            StrokeEndLineCap = PenLineCap.Flat, StrokeLineJoin = PenLineJoin.Round,
             Opacity = 0, Visibility = Visibility.Collapsed
         };
         reference.ArrowHead = new System.Windows.Shapes.Polygon { Fill = brush, Opacity = 0, Visibility = Visibility.Collapsed };
@@ -704,39 +715,23 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateReferenceHighlight(ReferenceVisual reference, Border targetCard, Point topLeft, bool targetOnScreen)
+    private void UpdateReferenceHighlight(ReferenceVisual reference, FrameworkElement targetElement, bool targetOnScreen)
     {
         var visible = reference.IsHovered && targetOnScreen;
-        if (visible)
-        {
-            EnsureHighlight(reference);
-            reference.Highlight!.Width = targetCard.ActualWidth;
-            reference.Highlight.Height = targetCard.ActualHeight;
-            Canvas.SetLeft(reference.Highlight, topLeft.X);
-            Canvas.SetTop(reference.Highlight, topLeft.Y);
-        }
+        if (visible) EnsureHighlight(reference, targetElement);
         SetHighlightVisible(reference, visible);
     }
 
-    private void EnsureHighlight(ReferenceVisual reference)
+    private static void EnsureHighlight(ReferenceVisual reference, FrameworkElement targetElement)
     {
         if (reference.Highlight is not null) return;
-        reference.Highlight = new Border
-        {
-            BorderBrush = new SolidColorBrush(Color.FromRgb(255, 185, 0)),
-            Background = new SolidColorBrush(Color.FromArgb(22, 255, 185, 0)),
-            BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8),
-            Opacity = 0, Visibility = Visibility.Collapsed
-        };
-        Panel.SetZIndex(reference.Highlight, 1);
-        ReferenceArrowCanvas.Children.Add(reference.Highlight);
+        reference.Highlight = FindHighlightBorder(targetElement);
     }
 
     private void SetHighlightVisible(ReferenceVisual reference, bool visible)
     {
         if (reference.HighlightVisible == visible) return;
         reference.HighlightVisible = visible;
-        if (visible) EnsureHighlight(reference);
         if (reference.Highlight is null) return;
         if (visible)
         {
@@ -765,18 +760,40 @@ public partial class MainWindow : Window
         return null;
     }
 
+    private static Border? FindHighlightBorder(DependencyObject root)
+    {
+        if (root is Border { Uid: "ReferenceHighlight" } highlight) return highlight;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var match = FindHighlightBorder(VisualTreeHelper.GetChild(root, i));
+            if (match is not null) return match;
+        }
+        return null;
+    }
+
     private void RemoveReferenceVisual(ReferenceVisual reference)
     {
         if (reference.Path is not null) ReferenceArrowCanvas.Children.Remove(reference.Path);
         if (reference.ArrowHead is not null) ReferenceArrowCanvas.Children.Remove(reference.ArrowHead);
-        if (reference.Highlight is not null) ReferenceArrowCanvas.Children.Remove(reference.Highlight);
+        ResetHighlight(reference);
         _referenceVisuals.Remove(reference);
     }
 
     private void ResetReferenceVisuals()
     {
+        foreach (var reference in _referenceVisuals) ResetHighlight(reference);
         _referenceVisuals.Clear();
         ReferenceArrowCanvas.Children.Clear();
+    }
+
+    private static void ResetHighlight(ReferenceVisual reference)
+    {
+        if (reference.Highlight is null) return;
+        reference.Highlight.BeginAnimation(OpacityProperty, null);
+        reference.Highlight.Opacity = 0;
+        reference.Highlight.Visibility = Visibility.Collapsed;
+        reference.Highlight = null;
+        reference.HighlightVisible = false;
     }
 
     private void ChooseReplyImage_Click(object sender, RoutedEventArgs e)

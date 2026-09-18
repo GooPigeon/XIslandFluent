@@ -47,6 +47,7 @@
                         <TextBlock Text="{Binding PageDividerText}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="11"/>
                     </Border>
                 </Grid>
+                <Grid>
                 <Border Style="{StaticResource CardStyle}" Tag="{Binding Id}">
                 <StackPanel>
                     <DockPanel LastChildFill="False">
@@ -79,6 +80,9 @@
                     </Border>
                 </StackPanel>
                 </Border>
+                <Border Uid="ReferenceHighlight" IsHitTestVisible="False" BorderBrush="#FFFFB900" Background="#16FFB900"
+                        BorderThickness="2" CornerRadius="8" Margin="0,0,0,10" Opacity="0" Visibility="Collapsed" Panel.ZIndex="5"/>
+                </Grid>
             </StackPanel>
         </DataTemplate>
         <HierarchicalDataTemplate DataType="{x:Type models:ForumCategory}" ItemsSource="{Binding Forums}">
