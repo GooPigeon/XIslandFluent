@@ -247,7 +247,7 @@ public partial class MainWindow : Window
     private void SetHeader(string title, string subtitle)
     {
         PageTitle.Text = title;
-        TitleBarText.Text = title;
+        Title = title == "时间线" ? "X 岛" : $"X 岛 · {title}";
         PageSubtitle.Text = subtitle;
     }
 
@@ -417,6 +417,12 @@ public partial class MainWindow : Window
         var raw = QuickOpenBox.Text.Trim().Replace("No.", "", StringComparison.OrdinalIgnoreCase).Replace(">>", "");
         if (int.TryParse(raw, out var id) && id > 0) await OpenThreadAsync(id);
         else ShowTransientStatus("请输入有效串号，例如 50000002");
+    }
+
+    private void QuickOpenBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (QuickOpenHint is not null)
+            QuickOpenHint.Visibility = string.IsNullOrEmpty(QuickOpenBox.Text) ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Search_Click(object sender, RoutedEventArgs e)
@@ -602,15 +608,6 @@ public partial class MainWindow : Window
         catch { return false; }
     }
 
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2) WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-        else if (e.LeftButton == MouseButtonState.Pressed) DragMove();
-    }
-    private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
-    private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-    private void Close_Click(object sender, RoutedEventArgs e) => Close();
-
     private void ApplyWindowBackdrop()
     {
         var handle = new WindowInteropHelper(this).Handle;
@@ -618,6 +615,8 @@ public partial class MainWindow : Window
         var dark = _settings.Theme == "Dark" || (_settings.Theme == "System" && IsSystemDarkMode());
         var darkValue = dark ? 1 : 0;
         DwmSetWindowAttribute(handle, 20, ref darkValue, sizeof(int));
+        var transitionsDisabled = 0;
+        DwmSetWindowAttribute(handle, 3, ref transitionsDisabled, sizeof(int));
         var backdrop = 2; // DWMSBT_MAINWINDOW (Mica)
         DwmSetWindowAttribute(handle, 38, ref backdrop, sizeof(int));
         var corner = 2; // DWMWCP_ROUND
