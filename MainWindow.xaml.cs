@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
@@ -14,8 +15,9 @@ namespace XIslandFluent;
 
 public partial class MainWindow : Window
 {
-    private enum ViewMode { Timeline, Board, Feed, Thread, Forums, Settings, Notice }
+    private enum ViewMode { Timeline, Board, Feed, Thread, OfflineThread, Forums, Offline, Settings, Notice }
     private readonly SettingsService _settingsService = new();
+    private readonly OfflineCacheService _offlineCache = new();
     private readonly ObservableCollection<ForumCategory> _forumCategories = [];
     private readonly ObservableCollection<TimelineInfo> _timelines = [];
     private AppSettings _settings;
@@ -30,6 +32,7 @@ public partial class MainWindow : Window
     private ForumInfo? _selectedForum;
     private bool _loaded;
     private bool _replyInProgress;
+    private List<Post> _currentThreadPosts = [];
 
     public ObservableCollection<ForumCategory> ForumCategories => _forumCategories;
 
@@ -139,10 +142,12 @@ public partial class MainWindow : Window
             var posts = new List<Post> { thread };
             posts.AddRange(thread.Replies ?? []);
             PrepareImages(posts);
+            _currentThreadPosts = posts;
             ReplyItems.ItemsSource = posts;
             PageSubtitle.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
             PageNumberText.Text = $"第 {_page} 页";
         });
+        SetThreadOnlineState(true);
     }
 
     private void PrepareImages(IEnumerable<Post> posts)
@@ -221,9 +226,21 @@ public partial class MainWindow : Window
         LoadSettingsIntoControls();
     }
 
+    private void OfflineNav_Click(object sender, RoutedEventArgs e) => ShowOfflineLibrary();
+
+    private void ShowOfflineLibrary()
+    {
+        _mode = ViewMode.Offline;
+        ShowPanel(OfflinePanel);
+        BackButton.Visibility = Visibility.Collapsed;
+        NewThreadButton.Visibility = Visibility.Collapsed;
+        SetHeader("离线缓存", "可离线阅读，也可导入或导出缓存包");
+        RefreshOfflineList();
+    }
+
     private void ShowPanel(UIElement selected)
     {
-        foreach (var panel in new UIElement[] { ListViewPanel, ForumsPanel, ThreadPanel, SettingsPanel, NoticePanel })
+        foreach (var panel in new UIElement[] { ListViewPanel, ForumsPanel, ThreadPanel, OfflinePanel, SettingsPanel, NoticePanel })
             panel.Visibility = ReferenceEquals(panel, selected) ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -298,6 +315,7 @@ public partial class MainWindow : Window
                 default: await ShowTimelineAsync(false); break;
             }
         }
+        else if (_mode == ViewMode.OfflineThread) ShowOfflineLibrary();
         else ForumsNav_Click(sender, e);
     }
 
@@ -399,6 +417,117 @@ public partial class MainWindow : Window
         var raw = QuickOpenBox.Text.Trim().Replace("No.", "", StringComparison.OrdinalIgnoreCase).Replace(">>", "");
         if (int.TryParse(raw, out var id) && id > 0) await OpenThreadAsync(id);
         else ShowTransientStatus("请输入有效串号，例如 50000002");
+    }
+
+    private void Search_Click(object sender, RoutedEventArgs e)
+    {
+        var search = new SearchWindow { Owner = this };
+        search.ThreadSelected += async (_, id) =>
+        {
+            search.Close();
+            await OpenThreadAsync(id);
+        };
+        search.ShowDialog();
+    }
+
+    private async void SaveImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: Post post } || string.IsNullOrWhiteSpace(post.ImageUrl)) return;
+        var extension = string.IsNullOrWhiteSpace(post.ImageExtension) ? ".jpg" : post.ImageExtension;
+        if (!extension.StartsWith('.')) extension = "." + extension;
+        var picker = new SaveFileDialog
+        {
+            Title = "保存图片",
+            FileName = $"No.{post.Id}{extension}",
+            Filter = $"图片 (*{extension})|*{extension}|所有文件|*.*"
+        };
+        if (picker.ShowDialog(this) != true) return;
+        await RunBusyAsync("正在保存图片…", async () =>
+        {
+            var bytes = await _api.DownloadImageAsync(post.ImageUrl);
+            await File.WriteAllBytesAsync(picker.FileName, bytes);
+            ShowTransientStatus($"图片已保存到 {picker.FileName}");
+        });
+    }
+
+    private async void CacheCurrentThread_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentThreadId <= 0 || _currentThreadPosts.Count == 0) return;
+        await RunBusyAsync("正在缓存串与图片…", async () =>
+        {
+            await _offlineCache.SaveAsync(_currentThreadId, PageTitle.Text, _currentThreadPosts, url => _api.DownloadImageAsync(url));
+            ShowTransientStatus($"No.{_currentThreadId} 已保存到离线缓存");
+        });
+    }
+
+    private void RefreshOffline_Click(object sender, RoutedEventArgs e) => RefreshOfflineList();
+
+    private void RefreshOfflineList()
+    {
+        OfflineItems.ItemsSource = _offlineCache.List();
+        if (OfflineItems.Items.Count > 0) OfflineItems.SelectedIndex = 0;
+    }
+
+    private async void ImportOffline_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new OpenFileDialog { Title = "导入串缓存", Filter = "X 岛离线串|*.xthread|所有文件|*.*" };
+        if (picker.ShowDialog(this) != true) return;
+        await RunBusyAsync("正在导入离线缓存…", async () =>
+        {
+            var info = await _offlineCache.ImportAsync(picker.FileName);
+            RefreshOfflineList();
+            ShowTransientStatus($"已导入 No.{info.ThreadId}");
+        });
+    }
+
+    private void ExportOffline_Click(object sender, RoutedEventArgs e)
+    {
+        if (OfflineItems.SelectedItem is not OfflineThreadInfo info)
+        {
+            ShowTransientStatus("请先选择一个离线串");
+            return;
+        }
+        var picker = new SaveFileDialog { Title = "导出串缓存", FileName = $"No.{info.ThreadId}.xthread", Filter = "X 岛离线串|*.xthread" };
+        if (picker.ShowDialog(this) != true) return;
+        File.Copy(info.FilePath, picker.FileName, true);
+        ShowTransientStatus($"缓存包已导出到 {picker.FileName}");
+    }
+
+    private async void OpenOffline_Click(object sender, RoutedEventArgs e)
+    {
+        if (OfflineItems.SelectedItem is not OfflineThreadInfo info)
+        {
+            ShowTransientStatus("请先选择一个离线串");
+            return;
+        }
+        await OpenOfflineThreadAsync(info);
+    }
+
+    private async Task OpenOfflineThreadAsync(OfflineThreadInfo info)
+    {
+        var package = await RunBusyAsync("正在打开离线串…", () => _offlineCache.LoadAsync(info.FilePath));
+        if (package is null) return;
+        _currentThreadId = package.ThreadId;
+        _currentThreadPosts = package.Posts;
+        _page = 1;
+        _mode = ViewMode.OfflineThread;
+        ShowPanel(ThreadPanel);
+        BackButton.Visibility = Visibility.Visible;
+        NewThreadButton.Visibility = Visibility.Collapsed;
+        SetHeader(string.IsNullOrWhiteSpace(package.Title) ? $"No.{package.ThreadId}" : package.Title, $"离线缓存 · {package.CachedAt.LocalDateTime:yyyy-MM-dd HH:mm}");
+        ReplyItems.ItemsSource = package.Posts;
+        PageNumberText.Text = "离线";
+        SetThreadOnlineState(false);
+    }
+
+    private void SetThreadOnlineState(bool online)
+    {
+        SubscribeButton.Visibility = online ? Visibility.Visible : Visibility.Collapsed;
+        UnsubscribeButton.Visibility = online ? Visibility.Visible : Visibility.Collapsed;
+        CacheThreadButton.Visibility = online ? Visibility.Visible : Visibility.Collapsed;
+        ReplyComposer.Visibility = online ? Visibility.Visible : Visibility.Collapsed;
+        OnlyPoCheck.Visibility = online ? Visibility.Visible : Visibility.Collapsed;
+        OfflineModeText.Visibility = online ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void SaveSettings_Click(object sender, RoutedEventArgs e)

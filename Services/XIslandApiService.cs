@@ -84,6 +84,19 @@ public sealed class XIslandApiService : IDisposable
         return $"{CdnBaseUrl}{(thumbnail ? "thumb" : "image")}/{post.ImagePath}{post.ImageExtension}";
     }
 
+    public async Task<byte[]> DownloadImageAsync(string url, CancellationToken ct = default)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            if (File.Exists(url)) return await File.ReadAllBytesAsync(url, ct);
+            throw new ApiException("图片地址无效");
+        }
+        using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        using var response = await _siteClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!response.IsSuccessStatusCode) throw new ApiException($"图片下载失败（{(int)response.StatusCode}）");
+        return await response.Content.ReadAsByteArrayAsync(ct);
+    }
+
     private async Task<T> GetAsync<T>(string path, CancellationToken ct, bool useSite = false, string? baseOverride = null)
     {
         using var request = CreateRequest(HttpMethod.Get, path, useSite, baseOverride);

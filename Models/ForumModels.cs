@@ -85,6 +85,31 @@ public sealed class CdnEntry
     [JsonPropertyName("rate")] public double Rate { get; set; }
 }
 
+public sealed class OfflineThreadPackage
+{
+    public int FormatVersion { get; set; } = 1;
+    public int ThreadId { get; set; }
+    public string Title { get; set; } = "";
+    public DateTimeOffset CachedAt { get; set; } = DateTimeOffset.Now;
+    public List<Post> Posts { get; set; } = [];
+    public Dictionary<int, OfflineImage> Images { get; set; } = [];
+}
+
+public sealed class OfflineImage
+{
+    public string Extension { get; set; } = ".jpg";
+    public string Base64 { get; set; } = "";
+}
+
+public sealed class OfflineThreadInfo
+{
+    public int ThreadId { get; set; }
+    public string Title { get; set; } = "";
+    public DateTimeOffset CachedAt { get; set; }
+    public string FilePath { get; set; } = "";
+    [JsonIgnore] public string DisplayText => $"No.{ThreadId}  {Title}\n缓存于 {CachedAt.LocalDateTime:yyyy-MM-dd HH:mm}";
+}
+
 public sealed class ApiException(string message) : Exception(message);
 
 public sealed class FlexibleIntConverter : JsonConverter<int>

@@ -42,6 +42,8 @@
                         <TextBlock Text="{Binding Id, StringFormat=No.{0}}" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold"/>
                         <TextBlock Text="{Binding Author}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0"/>
                         <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="保存图片" Tag="{Binding}" Click="SaveImage_Click" Margin="6,0,0,0"
+                                Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0"/>
                     </DockPanel>
@@ -86,15 +88,17 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="248"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Border Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,1,0">
                 <Grid Margin="12">
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <TextBox x:Name="QuickOpenBox" ToolTip="输入串号并按 Enter" KeyDown="QuickOpenBox_KeyDown" Margin="0,4,0,12"/>
-                    <StackPanel Grid.Row="1">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Button Style="{StaticResource AccentButton}" HorizontalContentAlignment="Left" Margin="0,4,0,8" Click="Search_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="搜索全岛"/></StackPanel></Button>
+                    <TextBox Grid.Row="1" x:Name="QuickOpenBox" ToolTip="输入串号并按 Enter" KeyDown="QuickOpenBox_KeyDown" Margin="0,0,0,12"/>
+                    <StackPanel Grid.Row="2">
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="TimelineNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE823;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="时间线"/></StackPanel></Button>
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="ForumsNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE8A9;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="浏览板块"/></StackPanel></Button>
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="FeedNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE734;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="我的订阅"/></StackPanel></Button>
+                        <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="OfflineNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE896;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="离线缓存"/></StackPanel></Button>
                         <Button Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Margin="0,0,0,4" Click="NoticeNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="公告"/></StackPanel></Button>
                     </StackPanel>
-                    <Button Grid.Row="2" Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Click="SettingsNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="设置"/></StackPanel></Button>
+                    <Button Grid.Row="3" Style="{StaticResource FluentButton}" HorizontalContentAlignment="Left" Click="SettingsNav_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="设置"/></StackPanel></Button>
                 </Grid>
             </Border>
 
@@ -150,8 +154,10 @@
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                         <DockPanel Margin="0,0,0,10">
                             <CheckBox x:Name="OnlyPoCheck" Content="只看 PO" Checked="OnlyPoCheck_Changed" Unchecked="OnlyPoCheck_Changed"/>
-                            <Button Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="订阅此串" Click="SubscribeCurrent_Click" Margin="12,0,0,0"/>
-                            <Button Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="取消订阅" Click="UnsubscribeCurrent_Click" Margin="6,0,0,0"/>
+                            <Button x:Name="SubscribeButton" Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="订阅此串" Click="SubscribeCurrent_Click" Margin="12,0,0,0"/>
+                            <Button x:Name="UnsubscribeButton" Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="取消订阅" Click="UnsubscribeCurrent_Click" Margin="6,0,0,0"/>
+                            <Button x:Name="CacheThreadButton" Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="缓存此串" Click="CacheCurrentThread_Click" Margin="6,0,0,0"/>
+                            <TextBlock x:Name="OfflineModeText" Text="离线阅读" Foreground="{DynamicResource AccentBrush}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0,0,0" Visibility="Collapsed"/>
                             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
                                 <Button Style="{StaticResource FluentButton}" Padding="10,4" MinHeight="28" Content="上一页" Click="PreviousPage_Click" Margin="0,0,6,0"/>
                                 <TextBlock Text="{Binding ElementName=PageNumberText, Path=Text}" VerticalAlignment="Center" Margin="4,0,10,0"/>
@@ -159,12 +165,25 @@
                             </StackPanel>
                         </DockPanel>
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><ItemsControl x:Name="ReplyItems" ItemTemplate="{StaticResource ReplyCardTemplate}"/></ScrollViewer>
-                        <Grid Grid.Row="2" Margin="0,12,0,0">
+                        <Grid x:Name="ReplyComposer" Grid.Row="2" Margin="0,12,0,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <TextBox x:Name="ReplyBox" AcceptsReturn="True" MinHeight="58" MaxHeight="120" VerticalScrollBarVisibility="Auto"/>
                             <Button Grid.Column="1" Style="{StaticResource FluentButton}" Content="添加图片" Click="ChooseReplyImage_Click" Margin="8,0"/>
                             <Button x:Name="SendReplyButton" Grid.Column="2" Style="{StaticResource AccentButton}" Content="发送回复" Click="SendReply_Click"/>
                         </Grid>
+                    </Grid>
+
+                    <Grid x:Name="OfflinePanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Button Style="{StaticResource AccentButton}" Content="导入缓存" Click="ImportOffline_Click"/>
+                            <Button Style="{StaticResource FluentButton}" Content="刷新列表" Click="RefreshOffline_Click" Margin="8,0,0,0"/>
+                        </StackPanel>
+                        <ListBox Grid.Row="1" x:Name="OfflineItems" DisplayMemberPath="DisplayText" Background="Transparent" BorderThickness="0" FontSize="14"/>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,0">
+                            <Button Style="{StaticResource AccentButton}" Content="打开缓存" Click="OpenOffline_Click"/>
+                            <Button Style="{StaticResource FluentButton}" Content="导出选中" Click="ExportOffline_Click" Margin="8,0,0,0"/>
+                        </StackPanel>
                     </Grid>
 
                     <Grid x:Name="SettingsPanel" Visibility="Collapsed">

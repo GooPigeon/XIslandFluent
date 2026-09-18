@@ -1,6 +1,6 @@
 # X 岛 Fluent
 
-面向 Windows 11 的原生 X 岛桌面客户端。程序基于 WPF 与 Windows DWM 构建，不使用 WebView、Electron 或网页套壳。
+面向 Windows 11 的原生 X 岛桌面客户端。主界面与论坛功能基于 WPF 和 Windows DWM 构建，不使用 Electron 或网页套壳；WebView2 仅用于用户主动打开的饼干管理与搜索辅助窗口。
 
 ## 已实现功能
 
@@ -11,6 +11,9 @@
 - 订阅列表、添加订阅、取消订阅
 - 发新串、回复、引用回复、图片上传与可选水印
 - 公告显示、CDN 自动选择、原图与缩略图加载
+- 串内图片保存到本机
+- 串与图片离线缓存，并支持 `.xthread` 缓存包导入、导出
+- 左上角全岛搜索入口；点击搜索结果后由客户端原生串页面打开
 - 饼干/Cookie 与订阅标识本机保存
 - 内置受限 WebView2 用户系统窗口；在网页中点击“应用”饼干后自动读取 `userhash`、保存并刷新客户端
 - 网络异常和 API 业务错误提示
@@ -50,7 +53,7 @@ dotnet run --project tests/Smoke/XIslandFluent.Smoke.csproj -c Release
 ## 隐私与安全
 
 - Cookie、订阅标识和主题设置只保存在本机当前用户目录。
-- 程序只连接 `www.nmbxd1.com`、`api.nmb.best` 和 API 返回的图片 CDN。
+- 程序只连接 `www.nmbxd1.com`、`api.nmb.best`、`nmb.ovear.info`、`nmb-search.166666666.xyz` 和 API 返回的图片 CDN。
 - HTML 内容会转换为纯文本显示，不执行脚本，也不嵌入网页。
 - 运行诊断日志保存在 `%LOCALAPPDATA%\XIslandFluent\logs`，仅记录操作阶段、状态码和错误，不记录饼干值或回复正文。
 
@@ -59,3 +62,9 @@ dotnet run --project tests/Smoke/XIslandFluent.Smoke.csproj -c Release
 - 修复发送回复、添加订阅等返回值操作触发泛型异步重载递归，最终导致 `0xC00000FD` 栈溢出闪退的问题。
 - 回复按钮增加防重入保护，避免网络延迟期间重复提交。
 - 串内图片准备改为带循环检测的迭代处理，避免异常数据形成递归风险。
+
+## 1.2.0 新功能
+
+- 支持保存串内图片。
+- 支持包含正文与图片的离线串缓存，以及 `.xthread` 文件导入、导出。
+- 新增全岛搜索窗口，搜索结果中的串链接会交回原生客户端打开。
