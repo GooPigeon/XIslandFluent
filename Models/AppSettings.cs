@@ -7,4 +7,5 @@ public sealed class AppSettings
     public string Theme { get; set; } = "System";
     public bool WatermarkImages { get; set; }
     public bool CompactCards { get; set; }
+    public bool ReferenceVisualEffects { get; set; } = true;
 }

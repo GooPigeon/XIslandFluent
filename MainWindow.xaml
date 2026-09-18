@@ -40,7 +40,7 @@
             </Border>
         </DataTemplate>
         <DataTemplate x:Key="ReplyCardTemplate" DataType="{x:Type models:Post}">
-            <StackPanel>
+            <StackPanel Margin="22,0,0,0">
                 <Grid Margin="0,5,0,9" Visibility="{Binding ShowPageDivider, Converter={StaticResource BoolVisibility}}">
                     <Border Height="1" Background="{DynamicResource StrokeBrush}" VerticalAlignment="Center"/>
                     <Border Background="{DynamicResource SurfaceBrush}" Padding="10,2" HorizontalAlignment="Center">
@@ -211,7 +211,7 @@
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel MaxWidth="720" HorizontalAlignment="Left">
                                 <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="身份与订阅" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="订阅标识仅用于同步订阅列表；饼干用于访问受限板块和发表内容。数据只保存在本机。" Foreground="{DynamicResource SubtleTextBrush}" Margin="0,5,0,14"/><TextBlock Text="订阅标识"/><TextBox x:Name="SubscriptionIdBox" Margin="0,5,0,12"/><TextBlock Text="Cookie / 饼干"/><PasswordBox x:Name="CookieBox" Margin="0,5,0,10" ToolTip="饼干值已隐藏；也可以手动粘贴完整 Cookie 字符串"/><StackPanel Orientation="Horizontal"><Button Style="{StaticResource AccentButton}" Content="从用户系统获取饼干" Click="ImportCookie_Click"/><TextBlock x:Name="CookieStatusText" Text="尚未获取" Foreground="{DynamicResource SubtleTextBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/></StackPanel></StackPanel></Border>
-                                <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="外观与发图" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="主题" Margin="0,12,0,4"/><ComboBox x:Name="ThemePicker" Width="220" HorizontalAlignment="Left"><ComboBoxItem Content="跟随系统" Tag="System"/><ComboBoxItem Content="浅色" Tag="Light"/><ComboBoxItem Content="深色" Tag="Dark"/></ComboBox><CheckBox x:Name="WatermarkCheck" Content="上传图片时添加水印" Margin="0,12,0,0"/></StackPanel></Border>
+                                <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="外观与发图" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="主题" Margin="0,12,0,4"/><ComboBox x:Name="ThemePicker" Width="220" HorizontalAlignment="Left"><ComboBoxItem Content="跟随系统" Tag="System"/><ComboBoxItem Content="浅色" Tag="Light"/><ComboBoxItem Content="深色" Tag="Dark"/></ComboBox><CheckBox x:Name="WatermarkCheck" Content="上传图片时添加水印" Margin="0,12,0,0"/><CheckBox x:Name="ReferenceEffectsCheck" Content="引用箭头与悬停高亮" Margin="0,12,0,0"/><TextBlock Text="关闭后可降低长串滚动时的图形开销" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="24,2,0,0"/></StackPanel></Border>
                                 <Button Style="{StaticResource AccentButton}" Content="保存设置" Click="SaveSettings_Click" HorizontalAlignment="Left"/>
                             </StackPanel>
                         </ScrollViewer>

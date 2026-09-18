@@ -47,10 +47,30 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, Post> _referenceCache = [];
     private readonly List<ReferenceVisual> _referenceVisuals = [];
     private readonly DispatcherTimer _arrowUpdateTimer;
+    private bool _arrowUpdatePending;
     private string _currentPageTitle = "时间线";
 
     private static readonly Regex ReferenceRegex = new(@">>No\.(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private sealed record ReferenceVisual(TextBlock Owner, Hyperlink Link, int TargetId);
+    private static readonly Color[] ReferenceColors =
+    [
+        Color.FromRgb(22, 163, 74), Color.FromRgb(37, 99, 235), Color.FromRgb(147, 51, 234),
+        Color.FromRgb(234, 88, 12), Color.FromRgb(15, 118, 110), Color.FromRgb(219, 39, 119)
+    ];
+
+    private sealed class ReferenceVisual(TextBlock owner, Hyperlink link, int sourceId, int targetId, int colorIndex)
+    {
+        public TextBlock Owner { get; } = owner;
+        public Hyperlink Link { get; } = link;
+        public int SourceId { get; } = sourceId;
+        public int TargetId { get; } = targetId;
+        public int ColorIndex { get; } = colorIndex;
+        public System.Windows.Shapes.Path? Path { get; set; }
+        public System.Windows.Shapes.Polygon? ArrowHead { get; set; }
+        public Border? Highlight { get; set; }
+        public bool ArrowVisible { get; set; }
+        public bool HighlightVisible { get; set; }
+        public bool IsHovered { get; set; }
+    }
 
     public ObservableCollection<ForumCategory> ForumCategories => _forumCategories;
 
@@ -60,10 +80,15 @@ public partial class MainWindow : Window
         _api = new XIslandApiService(_settings);
         InitializeComponent();
         DataContext = this;
-        _arrowUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(80) };
+        _arrowUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _arrowUpdateTimer.Tick += (_, _) =>
         {
-            _arrowUpdateTimer.Stop();
+            if (!_arrowUpdatePending)
+            {
+                _arrowUpdateTimer.Stop();
+                return;
+            }
+            _arrowUpdatePending = false;
             UpdateReferenceArrows();
         };
         Loaded += MainWindow_Loaded;
@@ -208,6 +233,7 @@ public partial class MainWindow : Window
 
     private void ApplyThreadFilter()
     {
+        ResetReferenceVisuals();
         _visibleThreadPosts.Clear();
         var onlyPo = OnlyPoCheck.IsChecked == true;
         foreach (var post in _allThreadPosts)
@@ -421,7 +447,8 @@ public partial class MainWindow : Window
     private void PostContent_Loaded(object sender, RoutedEventArgs e)
     {
         if (sender is not TextBlock { Tag: Post post } textBlock) return;
-        _referenceVisuals.RemoveAll(x => ReferenceEquals(x.Owner, textBlock));
+        foreach (var stale in _referenceVisuals.Where(x => ReferenceEquals(x.Owner, textBlock)).ToList())
+            RemoveReferenceVisual(stale);
         textBlock.Inlines.Clear();
         var content = post.CleanContent;
         var offset = 0;
@@ -443,7 +470,8 @@ public partial class MainWindow : Window
             link.MouseLeave += ReferenceLink_MouseLeave;
             link.Tag = targetId;
             textBlock.Inlines.Add(link);
-            _referenceVisuals.Add(new ReferenceVisual(textBlock, link, targetId));
+            var colorIndex = _referenceVisuals.Count % ReferenceColors.Length;
+            _referenceVisuals.Add(new ReferenceVisual(textBlock, link, post.Id, targetId, colorIndex));
             offset = match.Index + match.Length;
         }
         if (offset < content.Length) textBlock.Inlines.Add(new Run(content[offset..]));
@@ -453,6 +481,9 @@ public partial class MainWindow : Window
     private async void ReferenceLink_MouseEnter(object sender, MouseEventArgs e)
     {
         if (sender is not Hyperlink { Tag: int targetId } link || link.ToolTip is not ToolTip tip) return;
+        var visual = _referenceVisuals.FirstOrDefault(x => ReferenceEquals(x.Link, link));
+        if (visual is not null) visual.IsHovered = true;
+        ScheduleArrowUpdate();
         try
         {
             var post = _allThreadPosts.FirstOrDefault(x => x.Id == targetId);
@@ -474,7 +505,12 @@ public partial class MainWindow : Window
 
     private void ReferenceLink_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (sender is Hyperlink { ToolTip: ToolTip tip }) tip.IsOpen = false;
+        if (sender is Hyperlink { ToolTip: ToolTip tip } link)
+        {
+            tip.IsOpen = false;
+            var visual = _referenceVisuals.FirstOrDefault(x => ReferenceEquals(x.Link, link));
+            if (visual is not null) visual.IsHovered = false;
+        }
         ScheduleArrowUpdate();
     }
 
@@ -507,26 +543,42 @@ public partial class MainWindow : Window
 
     private void ScheduleArrowUpdate()
     {
-        _arrowUpdateTimer.Stop();
-        _arrowUpdateTimer.Start();
+        if (!_settings.ReferenceVisualEffects)
+        {
+            _arrowUpdatePending = false;
+            _arrowUpdateTimer.Stop();
+            ReferenceArrowCanvas.Visibility = Visibility.Collapsed;
+            return;
+        }
+        ReferenceArrowCanvas.Visibility = Visibility.Visible;
+        _arrowUpdatePending = true;
+        if (!_arrowUpdateTimer.IsEnabled) _arrowUpdateTimer.Start();
     }
 
     private void UpdateReferenceArrows()
     {
-        foreach (UIElement old in ReferenceArrowCanvas.Children.Cast<UIElement>().ToList())
+        if (!_settings.ReferenceVisualEffects || _mode != ViewMode.Thread || ReferenceArrowCanvas.ActualHeight <= 0)
         {
-            var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(110));
-            fadeOut.Completed += (_, _) => ReferenceArrowCanvas.Children.Remove(old);
-            old.BeginAnimation(OpacityProperty, fadeOut);
+            foreach (var reference in _referenceVisuals)
+            {
+                SetArrowVisible(reference, false);
+                SetHighlightVisible(reference, false);
+            }
+            return;
         }
-        if (_mode != ViewMode.Thread || OnlyPoCheck.IsChecked == true || ReferenceArrowCanvas.ActualHeight <= 0) return;
 
-        var maxDistance = Math.Max(ReplyScrollViewer.ViewportHeight * 2.1, 600);
+        var height = ReferenceArrowCanvas.ActualHeight;
+        var maxDistance = Math.Max(height * 2.1, 600);
         foreach (var reference in _referenceVisuals)
         {
             var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == reference.TargetId);
-            if (target is null || ReplyItems.ItemContainerGenerator.ContainerFromItem(target) is not FrameworkElement targetElement) continue;
-            if (!reference.Owner.IsVisible || !targetElement.IsVisible) continue;
+            if (target is null || ReplyItems.ItemContainerGenerator.ContainerFromItem(target) is not FrameworkElement targetElement ||
+                FindPostCard(targetElement, target.Id) is not Border targetCard)
+            {
+                SetArrowVisible(reference, false);
+                SetHighlightVisible(reference, false);
+                continue;
+            }
             try
             {
                 var ownerTransform = reference.Owner.TransformToVisual(ReferenceArrowCanvas);
@@ -535,46 +587,196 @@ public partial class MainWindow : Window
                     ? new Point(4, reference.Owner.ActualHeight / 2)
                     : new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2);
                 var sourcePoint = ownerTransform.Transform(sourceInOwner);
-                var targetPoint = targetElement.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(4, Math.Min(28, targetElement.ActualHeight / 2)));
-                if (Math.Abs(sourcePoint.Y - targetPoint.Y) > maxDistance) continue;
-                AddReferenceArrow(sourcePoint.Y, targetPoint.Y);
+                var targetTopLeft = targetCard.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(0, 0));
+                var targetY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2);
+                var sourceOnScreen = sourcePoint.Y >= 0 && sourcePoint.Y <= height;
+                var targetOnScreen = targetTopLeft.Y + targetCard.ActualHeight >= 0 && targetTopLeft.Y <= height;
+                var shouldShow = (sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetY) <= maxDistance;
+                if (shouldShow)
+                {
+                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height);
+                    SetArrowVisible(reference, true);
+                }
+                else SetArrowVisible(reference, false);
+
+                UpdateReferenceHighlight(reference, targetCard, targetTopLeft, targetOnScreen);
             }
-            catch (InvalidOperationException) { }
-            catch (ArgumentException) { }
+            catch (InvalidOperationException)
+            {
+                SetArrowVisible(reference, false);
+                SetHighlightVisible(reference, false);
+            }
+            catch (ArgumentException)
+            {
+                SetArrowVisible(reference, false);
+                SetHighlightVisible(reference, false);
+            }
         }
     }
 
-    private void AddReferenceArrow(double sourceY, double targetY)
+    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height)
     {
-        var height = ReferenceArrowCanvas.ActualHeight;
-        if (height < 24) return;
-        var reach = height * 2.2;
-        if (sourceY < -reach || sourceY > height + reach || targetY < -reach || targetY > height + reach) return;
-        sourceY = Math.Clamp(sourceY, 8, height - 8);
-        targetY = Math.Clamp(targetY, 8, height - 8);
-        const double outerX = 6;
-        const double innerX = 25;
+        EnsureArrow(reference);
+        const double endpointX = 20;
+        var laneX = 6 + reference.ColorIndex % 3 * 5;
         var geometry = new PathGeometry();
-        var figure = new PathFigure { StartPoint = new Point(innerX, sourceY), IsClosed = false };
-        figure.Segments.Add(new BezierSegment(new Point(outerX, sourceY), new Point(outerX, targetY), new Point(innerX, targetY), true));
-        geometry.Figures.Add(figure);
-        var brush = new SolidColorBrush(Color.FromRgb(22, 163, 74));
-        var path = new System.Windows.Shapes.Path { Data = geometry, Stroke = brush, StrokeThickness = 3.5, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Opacity = 0 };
-        var direction = targetY < sourceY ? -1d : 1d;
-        var arrow = new System.Windows.Shapes.Polygon
+        PathFigure figure;
+        PointCollection arrowPoints;
+
+        if (sourceOnScreen && targetOnScreen)
         {
-            Fill = brush,
-            Points = new PointCollection
-            {
-                new(innerX, targetY), new(innerX - 9, targetY - 5 * direction), new(innerX - 7, targetY + 6 * direction)
-            },
-            Opacity = 0
+            figure = new PathFigure { StartPoint = new Point(endpointX, sourceY), IsClosed = false };
+            figure.Segments.Add(new BezierSegment(new Point(laneX, sourceY), new Point(laneX, targetY), new Point(endpointX, targetY), true));
+            arrowPoints = RightArrow(endpointX, targetY);
+        }
+        else if (sourceOnScreen)
+        {
+            var edgeY = targetY < 0 ? 1d : height - 1;
+            var direction = targetY < 0 ? -1d : 1d;
+            figure = new PathFigure { StartPoint = new Point(endpointX, sourceY), IsClosed = false };
+            figure.Segments.Add(new BezierSegment(new Point(laneX, sourceY), new Point(laneX, sourceY + direction * 14), new Point(laneX, sourceY + direction * 24), true));
+            figure.Segments.Add(new LineSegment(new Point(laneX, edgeY), true));
+            arrowPoints = VerticalArrow(laneX, edgeY, direction);
+        }
+        else
+        {
+            var edgeY = sourceY < 0 ? 1d : height - 1;
+            var direction = sourceY < 0 ? 1d : -1d;
+            figure = new PathFigure { StartPoint = new Point(laneX, edgeY), IsClosed = false };
+            figure.Segments.Add(new LineSegment(new Point(laneX, targetY - direction * 24), true));
+            figure.Segments.Add(new BezierSegment(new Point(laneX, targetY - direction * 14), new Point(laneX, targetY), new Point(endpointX, targetY), true));
+            arrowPoints = RightArrow(endpointX, targetY);
+        }
+        geometry.Figures.Add(figure);
+        reference.Path!.Data = geometry;
+        reference.ArrowHead!.Points = arrowPoints;
+    }
+
+    private static PointCollection RightArrow(double x, double y) => [new Point(x, y), new Point(x - 8, y - 5), new Point(x - 8, y + 5)];
+
+    private static PointCollection VerticalArrow(double x, double y, double direction) => direction < 0
+        ? [new Point(x, y), new Point(x - 5, y + 8), new Point(x + 5, y + 8)]
+        : [new Point(x, y), new Point(x - 5, y - 8), new Point(x + 5, y - 8)];
+
+    private void EnsureArrow(ReferenceVisual reference)
+    {
+        if (reference.Path is not null) return;
+        var brush = new SolidColorBrush(ReferenceColors[reference.ColorIndex]);
+        reference.Path = new System.Windows.Shapes.Path
+        {
+            Stroke = brush, StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+            Opacity = 0, Visibility = Visibility.Collapsed
         };
-        ReferenceArrowCanvas.Children.Add(path);
-        ReferenceArrowCanvas.Children.Add(arrow);
-        var fade = new DoubleAnimation(0, 0.9, TimeSpan.FromMilliseconds(180));
-        path.BeginAnimation(OpacityProperty, fade);
-        arrow.BeginAnimation(OpacityProperty, fade);
+        reference.ArrowHead = new System.Windows.Shapes.Polygon { Fill = brush, Opacity = 0, Visibility = Visibility.Collapsed };
+        Panel.SetZIndex(reference.Path, 2);
+        Panel.SetZIndex(reference.ArrowHead, 2);
+        ReferenceArrowCanvas.Children.Add(reference.Path);
+        ReferenceArrowCanvas.Children.Add(reference.ArrowHead);
+    }
+
+    private void SetArrowVisible(ReferenceVisual reference, bool visible)
+    {
+        if (reference.ArrowVisible == visible) return;
+        reference.ArrowVisible = visible;
+        if (visible) EnsureArrow(reference);
+        if (reference.Path is null || reference.ArrowHead is null) return;
+        if (visible)
+        {
+            reference.Path.Visibility = Visibility.Visible;
+            reference.ArrowHead.Visibility = Visibility.Visible;
+            reference.Path.BeginAnimation(OpacityProperty, new DoubleAnimation(reference.Path.Opacity, 0.9, TimeSpan.FromMilliseconds(140)));
+            reference.ArrowHead.BeginAnimation(OpacityProperty, new DoubleAnimation(reference.ArrowHead.Opacity, 0.9, TimeSpan.FromMilliseconds(140)));
+        }
+        else
+        {
+            var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(120));
+            fade.Completed += (_, _) =>
+            {
+                if (!reference.ArrowVisible)
+                {
+                    reference.Path.Visibility = Visibility.Collapsed;
+                    reference.ArrowHead.Visibility = Visibility.Collapsed;
+                }
+            };
+            reference.Path.BeginAnimation(OpacityProperty, fade);
+            reference.ArrowHead.BeginAnimation(OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(120)));
+        }
+    }
+
+    private void UpdateReferenceHighlight(ReferenceVisual reference, Border targetCard, Point topLeft, bool targetOnScreen)
+    {
+        var visible = reference.IsHovered && targetOnScreen;
+        if (visible)
+        {
+            EnsureHighlight(reference);
+            reference.Highlight!.Width = targetCard.ActualWidth;
+            reference.Highlight.Height = targetCard.ActualHeight;
+            Canvas.SetLeft(reference.Highlight, topLeft.X);
+            Canvas.SetTop(reference.Highlight, topLeft.Y);
+        }
+        SetHighlightVisible(reference, visible);
+    }
+
+    private void EnsureHighlight(ReferenceVisual reference)
+    {
+        if (reference.Highlight is not null) return;
+        reference.Highlight = new Border
+        {
+            BorderBrush = new SolidColorBrush(Color.FromRgb(255, 185, 0)),
+            Background = new SolidColorBrush(Color.FromArgb(22, 255, 185, 0)),
+            BorderThickness = new Thickness(2), CornerRadius = new CornerRadius(8),
+            Opacity = 0, Visibility = Visibility.Collapsed
+        };
+        Panel.SetZIndex(reference.Highlight, 1);
+        ReferenceArrowCanvas.Children.Add(reference.Highlight);
+    }
+
+    private void SetHighlightVisible(ReferenceVisual reference, bool visible)
+    {
+        if (reference.HighlightVisible == visible) return;
+        reference.HighlightVisible = visible;
+        if (visible) EnsureHighlight(reference);
+        if (reference.Highlight is null) return;
+        if (visible)
+        {
+            reference.Highlight.Visibility = Visibility.Visible;
+            reference.Highlight.BeginAnimation(OpacityProperty, new DoubleAnimation(reference.Highlight.Opacity, 1, TimeSpan.FromMilliseconds(120)));
+        }
+        else
+        {
+            var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(120));
+            fade.Completed += (_, _) =>
+            {
+                if (!reference.HighlightVisible) reference.Highlight.Visibility = Visibility.Collapsed;
+            };
+            reference.Highlight.BeginAnimation(OpacityProperty, fade);
+        }
+    }
+
+    private static Border? FindPostCard(DependencyObject root, int postId)
+    {
+        if (root is Border { Tag: int id } card && id == postId) return card;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var match = FindPostCard(VisualTreeHelper.GetChild(root, i), postId);
+            if (match is not null) return match;
+        }
+        return null;
+    }
+
+    private void RemoveReferenceVisual(ReferenceVisual reference)
+    {
+        if (reference.Path is not null) ReferenceArrowCanvas.Children.Remove(reference.Path);
+        if (reference.ArrowHead is not null) ReferenceArrowCanvas.Children.Remove(reference.ArrowHead);
+        if (reference.Highlight is not null) ReferenceArrowCanvas.Children.Remove(reference.Highlight);
+        _referenceVisuals.Remove(reference);
+    }
+
+    private void ResetReferenceVisuals()
+    {
+        _referenceVisuals.Clear();
+        ReferenceArrowCanvas.Children.Clear();
     }
 
     private void ChooseReplyImage_Click(object sender, RoutedEventArgs e)
@@ -826,10 +1028,18 @@ public partial class MainWindow : Window
         _settings.Cookie = CookieBox.Password.Trim();
         _settings.Theme = (ThemePicker.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
         _settings.WatermarkImages = WatermarkCheck.IsChecked == true;
+        _settings.ReferenceVisualEffects = ReferenceEffectsCheck.IsChecked == true;
         if (string.IsNullOrWhiteSpace(_settings.SubscriptionId)) _settings.SubscriptionId = Guid.NewGuid().ToString();
         _settingsService.Save(_settings);
         _api.UpdateSettings(_settings);
         ApplyTheme(_settings.Theme);
+        if (_settings.ReferenceVisualEffects) ScheduleArrowUpdate();
+        else
+        {
+            _arrowUpdateTimer.Stop();
+            _arrowUpdatePending = false;
+            ReferenceArrowCanvas.Visibility = Visibility.Collapsed;
+        }
         LoadSettingsIntoControls();
         ShowTransientStatus("设置已保存到本机");
     }
@@ -841,6 +1051,7 @@ public partial class MainWindow : Window
         CookieBox.Password = _settings.Cookie;
         CookieStatusText.Text = string.IsNullOrWhiteSpace(_settings.Cookie) ? "尚未获取" : "已保存饼干";
         WatermarkCheck.IsChecked = _settings.WatermarkImages;
+        ReferenceEffectsCheck.IsChecked = _settings.ReferenceVisualEffects;
         ThemePicker.SelectedIndex = _settings.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 };
     }
 

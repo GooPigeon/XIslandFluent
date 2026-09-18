@@ -57,12 +57,46 @@ internal static class Program
                 var arrowCanvas = (Canvas)(window.FindName("ReferenceArrowCanvas") ?? throw new InvalidOperationException("ReferenceArrowCanvas not found"));
                 if (arrowCanvas.Children.Count == 0)
                     throw new InvalidOperationException("引用箭头没有生成");
+                var referenceVisual = FindReferenceVisual(window, localReference);
+                var arrowPath = referenceVisual.GetType().GetProperty("Path")?.GetValue(referenceVisual) as System.Windows.Shapes.Path
+                    ?? throw new InvalidOperationException("引用箭头路径缺失");
+                var firstGeometry = arrowPath.Data as PathGeometry ?? throw new InvalidOperationException("引用箭头几何缺失");
+                if (firstGeometry.Figures[0].Segments[0] is not LineSegment)
+                    throw new InvalidOperationException("屏外引用端没有使用直线进入视口");
+                var childCount = arrowCanvas.Children.Count;
+                updateArrows.Invoke(window, null);
+                if (!arrowCanvas.Children.Contains(arrowPath) || arrowCanvas.Children.Count != childCount)
+                    throw new InvalidOperationException("滚动刷新时重新创建了引用图形");
+
+                var mouseEnter = typeof(MainWindow).GetMethod("ReferenceLink_MouseEnter", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingMethodException("ReferenceLink_MouseEnter");
+                mouseEnter.Invoke(window, [localReference, new MouseEventArgs(Mouse.PrimaryDevice, 0)]);
+                updateArrows.Invoke(window, null);
+                if (!arrowCanvas.Children.OfType<Border>().Any(x => x.Visibility == Visibility.Visible))
+                    throw new InvalidOperationException("悬停引用时没有高亮屏幕内目标");
                 var tooltip = (ToolTip)(localReference.ToolTip ?? throw new InvalidOperationException("引用悬浮窗缺失"));
                 tooltip.IsOpen = true;
                 var mouseLeave = typeof(MainWindow).GetMethod("ReferenceLink_MouseLeave", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("ReferenceLink_MouseLeave");
                 mouseLeave.Invoke(window, [localReference, new MouseEventArgs(Mouse.PrimaryDevice, 0)]);
                 if (tooltip.IsOpen) throw new InvalidOperationException("引用悬浮窗离开后仍未关闭");
+                updateArrows.Invoke(window, null);
+                await Task.Delay(240);
+                if (arrowCanvas.Children.OfType<Border>().Any(x => x.Visibility == Visibility.Visible && x.Opacity > 0.01))
+                    throw new InvalidOperationException("引用目标高亮没有渐出消失");
+
+                var replyScroll = (ScrollViewer)(window.FindName("ReplyScrollViewer") ?? throw new InvalidOperationException("ReplyScrollViewer not found"));
+                var sourceOwner = Descendants<TextBlock>(replies).First(x => x.Inlines.Contains(localReference));
+                var sourceRect = localReference.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                var sourceY = sourceOwner.TransformToVisual(arrowCanvas).Transform(new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2)).Y;
+                replyScroll.ScrollToVerticalOffset(replyScroll.VerticalOffset + sourceY + 80);
+                window.UpdateLayout();
+                updateArrows.Invoke(window, null);
+                var arrowVisible = (bool)(referenceVisual.GetType().GetProperty("ArrowVisible")?.GetValue(referenceVisual) ?? true);
+                if (arrowVisible) throw new InvalidOperationException("引用与目标均在屏幕外时仍显示箭头");
+                replyScroll.ScrollToTop();
+                window.UpdateLayout();
+                updateArrows.Invoke(window, null);
                 var firstPageCount = replies.Items.Count;
                 var loadNext = typeof(MainWindow).GetMethod("LoadNextThreadPageAsync", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("LoadNextThreadPageAsync");
@@ -115,5 +149,13 @@ internal static class Program
             if (child is T match) yield return match;
             foreach (var nested in Descendants<T>(child)) yield return nested;
         }
+    }
+
+    private static object FindReferenceVisual(MainWindow window, Hyperlink link)
+    {
+        var field = typeof(MainWindow).GetField("_referenceVisuals", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException("_referenceVisuals");
+        var visuals = (System.Collections.IEnumerable)(field.GetValue(window) ?? throw new InvalidOperationException("引用视觉列表缺失"));
+        return visuals.Cast<object>().First(x => ReferenceEquals(x.GetType().GetProperty("Link")?.GetValue(x), link));
     }
 }
