@@ -22,7 +22,7 @@
                             </Border>
                             <TextBlock Text="{Binding DisplayTitle}" FontFamily="Segoe UI Variable Display, Microsoft YaHei UI" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                         </DockPanel>
-                        <TextBlock Text="{Binding CleanContent}" Margin="0,9,0,10" MaxHeight="78" TextTrimming="CharacterEllipsis" LineHeight="22"/>
+                        <TextBlock Text="{Binding CleanContent}" Margin="0,9,0,10" MaxHeight="78" TextTrimming="CharacterEllipsis" FontSize="16" LineHeight="22"/>
                         <DockPanel>
                             <TextBlock Text="{Binding Author}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12"/>
                             <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="14,0,0,0"/>
@@ -67,7 +67,7 @@
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     </DockPanel>
-                    <TextBlock Tag="{Binding}" Loaded="PostContent_Loaded" Margin="0,10,0,0" LineHeight="22" TextWrapping="Wrap"/>
+                    <TextBlock Tag="{Binding}" Loaded="PostContent_Loaded" Margin="0,10,0,0" FontSize="16" LineHeight="22" TextWrapping="Wrap"/>
                     <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
                         <Grid MinWidth="180" MinHeight="100" Background="{DynamicResource LayerBrush}">

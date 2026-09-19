@@ -119,6 +119,8 @@ internal static class Program
 
                 var replyScroll = (ScrollViewer)(window.FindName("ReplyScrollViewer") ?? throw new InvalidOperationException("ReplyScrollViewer not found"));
                 var sourceOwner = Descendants<TextBlock>(replies).First(x => x.Inlines.Contains(localReference));
+                if (Math.Abs(sourceOwner.FontSize - 16) > 0.01 || Math.Abs(sourceOwner.LineHeight - 22) > 0.01)
+                    throw new InvalidOperationException("串内正文排版未匹配网页版 16px/22px");
                 var sourceRect = localReference.ContentStart.GetCharacterRect(LogicalDirection.Forward);
                 var sourceY = sourceOwner.TransformToVisual(arrowCanvas).Transform(new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2)).Y;
                 var targetId = (int)(localReference.Tag ?? throw new InvalidOperationException("引用目标编号缺失"));
