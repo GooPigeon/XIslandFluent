@@ -99,7 +99,7 @@
             <Border Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,1,0">
                 <Grid Margin="12">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <Button Style="{StaticResource AccentButton}" HorizontalContentAlignment="Left" Margin="0,4,0,8" Click="Search_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="搜索全岛"/></StackPanel></Button>
+                    <Button x:Name="SearchButton" Style="{StaticResource AccentButton}" HorizontalContentAlignment="Left" Margin="0,4,0,8" Click="Search_Click"><StackPanel Orientation="Horizontal"><TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Width="28"/><TextBlock Text="搜索全岛"/></StackPanel></Button>
                     <Grid Grid.Row="1" Margin="0,0,0,12">
                         <TextBox x:Name="QuickOpenBox" ToolTip="输入串号并按 Enter" KeyDown="QuickOpenBox_KeyDown" TextChanged="QuickOpenBox_TextChanged"/>
                         <TextBlock x:Name="QuickOpenHint" Text="输入串号并按 Enter" Foreground="{DynamicResource SubtleTextBrush}" IsHitTestVisible="False" VerticalAlignment="Center" Margin="12,0,8,0"/>
@@ -214,7 +214,28 @@
                     <Grid x:Name="SettingsPanel" Visibility="Collapsed">
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <StackPanel MaxWidth="720" HorizontalAlignment="Left">
-                                <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="身份与订阅" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="订阅标识仅用于同步订阅列表；饼干用于访问受限板块和发表内容。数据只保存在本机。" Foreground="{DynamicResource SubtleTextBrush}" Margin="0,5,0,14"/><TextBlock Text="订阅标识"/><TextBox x:Name="SubscriptionIdBox" Margin="0,5,0,12"/><TextBlock Text="Cookie / 饼干"/><PasswordBox x:Name="CookieBox" Margin="0,5,0,10" ToolTip="饼干值已隐藏；也可以手动粘贴完整 Cookie 字符串"/><StackPanel Orientation="Horizontal"><Button Style="{StaticResource AccentButton}" Content="从用户系统获取饼干" Click="ImportCookie_Click"/><TextBlock x:Name="CookieStatusText" Text="尚未获取" Foreground="{DynamicResource SubtleTextBrush}" VerticalAlignment="Center" Margin="12,0,0,0"/></StackPanel></StackPanel></Border>
+                                <Border Style="{StaticResource CardStyle}">
+                                    <StackPanel>
+                                        <TextBlock Text="身份与订阅" FontSize="18" FontWeight="SemiBold"/>
+                                        <TextBlock Text="订阅标识仅用于同步订阅列表；饼干用于访问受限板块和发表内容。最多保存五个用户系统饼干，数据只保存在本机。" Foreground="{DynamicResource SubtleTextBrush}" Margin="0,5,0,14"/>
+                                        <TextBlock Text="订阅标识"/>
+                                        <TextBox x:Name="SubscriptionIdBox" Margin="0,5,0,12"/>
+                                        <TextBlock Text="饼干槽位"/>
+                                        <Grid Margin="0,5,0,10">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <ComboBox x:Name="CookieSlotPicker" DisplayMemberPath="Name" SelectionChanged="CookieSlotPicker_SelectionChanged"/>
+                                            <Button Grid.Column="1" Style="{StaticResource FluentButton}" Content="新增槽位" Click="AddCookieSlot_Click" Margin="8,0,0,0"/>
+                                            <Button Grid.Column="2" Style="{StaticResource FluentButton}" Content="删除槽位" Click="DeleteCookieSlot_Click" Margin="8,0,0,0"/>
+                                        </Grid>
+                                        <TextBlock Text="当前饼干"/>
+                                        <PasswordBox x:Name="CookieBox" Margin="0,5,0,10" ToolTip="饼干值已隐藏；也可以手动粘贴完整 Cookie 字符串"/>
+                                        <WrapPanel>
+                                            <Button Style="{StaticResource AccentButton}" Content="从用户系统获取饼干" Click="ImportCookie_Click" Margin="0,0,8,8"/>
+                                            <Button x:Name="ValidateCookieButton" Style="{StaticResource FluentButton}" Content="校验当前饼干" Click="ValidateCookie_Click" Margin="0,0,8,8"/>
+                                            <TextBlock x:Name="CookieStatusText" Text="尚未获取" Foreground="{DynamicResource SubtleTextBrush}" VerticalAlignment="Center" Margin="4,0,0,8"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+                                </Border>
                                 <Border Style="{StaticResource CardStyle}"><StackPanel><TextBlock Text="外观与发图" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="主题" Margin="0,12,0,4"/><ComboBox x:Name="ThemePicker" Width="220" HorizontalAlignment="Left"><ComboBoxItem Content="跟随系统" Tag="System"/><ComboBoxItem Content="浅色" Tag="Light"/><ComboBoxItem Content="深色" Tag="Dark"/></ComboBox><CheckBox x:Name="WatermarkCheck" Content="上传图片时添加水印" Margin="0,12,0,0"/><CheckBox x:Name="ReferenceEffectsCheck" Content="引用箭头与悬停高亮" Margin="0,12,0,0"/><TextBlock Text="关闭后可降低长串滚动时的图形开销" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="24,2,0,0"/></StackPanel></Border>
                                 <Button Style="{StaticResource AccentButton}" Content="保存设置" Click="SaveSettings_Click" HorizontalAlignment="Left"/>
                             </StackPanel>

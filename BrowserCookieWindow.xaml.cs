@@ -57,6 +57,8 @@ public partial class BrowserCookieWindow : Window
         {
             _baselineCookie = await ReadUserHashAsync();
             _initialized = true;
+            if (!string.IsNullOrWhiteSpace(_baselineCookie))
+                ApplyCookie(_baselineCookie, "已读取并记录用户系统当前饼干");
             _cookieTimer.Start();
         }
     }
@@ -99,7 +101,7 @@ public partial class BrowserCookieWindow : Window
     private void ApplyCookie(string value, string status)
     {
         CookieCaptured?.Invoke(this, $"userhash={value}");
-        BrowserStatusText.Text = status;
+        BrowserStatusText.Text = $"{status}：{value}";
     }
 
     private void Reload_Click(object sender, RoutedEventArgs e) => Browser.CoreWebView2?.Reload();

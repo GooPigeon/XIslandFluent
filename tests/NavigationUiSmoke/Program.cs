@@ -14,6 +14,7 @@ internal static class Program
     [STAThread]
     private static int Main()
     {
+        VerifyCookieSlots();
         var exitCode = 1;
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
@@ -46,6 +47,12 @@ internal static class Program
                     throw new InvalidOperationException("新串加载完成状态不正确");
                 window.UpdateLayout();
                 await Task.Delay(250);
+                var searchButton = (Button)(window.FindName("SearchButton") ?? throw new InvalidOperationException("SearchButton not found"));
+                var searchLabel = Descendants<TextBlock>(searchButton).First(x => x.Text == "搜索全岛");
+                if (searchLabel.Foreground is not SolidColorBrush searchBrush || searchBrush.Color != Colors.White)
+                    throw new InvalidOperationException("强调色按钮文字对比度不正确");
+                _ = window.FindName("CookieSlotPicker") ?? throw new InvalidOperationException("CookieSlotPicker not found");
+                _ = window.FindName("ValidateCookieButton") ?? throw new InvalidOperationException("ValidateCookieButton not found");
                 var loadedIds = replies.Items.Cast<XIslandFluent.Models.Post>().Select(x => x.Id).ToHashSet();
                 var localReference = Descendants<TextBlock>(replies)
                     .SelectMany(x => x.Inlines.OfType<Hyperlink>())
@@ -57,6 +64,9 @@ internal static class Program
                 var arrowCanvas = (Canvas)(window.FindName("ReferenceArrowCanvas") ?? throw new InvalidOperationException("ReferenceArrowCanvas not found"));
                 if (arrowCanvas.Children.Count == 0)
                     throw new InvalidOperationException("引用箭头没有生成");
+                var referenceVisual = FindRenderedReferenceVisual(window);
+                localReference = referenceVisual.GetType().GetProperty("Link")?.GetValue(referenceVisual) as Hyperlink
+                    ?? throw new InvalidOperationException("已渲染引用缺少链接");
                 var laneByColor = arrowCanvas.Children.OfType<System.Windows.Shapes.Path>()
                     .Where(x => x.Visibility == Visibility.Visible && x.Stroke is SolidColorBrush)
                     .GroupBy(x => ((SolidColorBrush)x.Stroke).Color)
@@ -65,9 +75,9 @@ internal static class Program
                 var orderedLanes = laneByColor.Distinct().OrderBy(x => x).ToList();
                 if (orderedLanes.Count > 4)
                     throw new InvalidOperationException("引用箭头使用了超过四条紧凑轨道");
-                if (orderedLanes.Count > 1 && orderedLanes[^1] - orderedLanes[0] > 6.1)
-                    throw new InvalidOperationException("紧凑引用轨道增加了左侧占用宽度");
-                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 1.5 || x > 3))
+                if (orderedLanes.Count > 1 && orderedLanes[^1] - orderedLanes[0] > 15.1)
+                    throw new InvalidOperationException("引用轨道超出预留区域");
+                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 4.5 || x > 5.5))
                     throw new InvalidOperationException("紧凑引用轨道间距不正确");
 
                 var poPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.IsPo);
@@ -79,7 +89,6 @@ internal static class Program
                 var numberCenter = poNumber.TransformToAncestor(poCard).Transform(new Point(0, poNumber.ActualHeight / 2)).Y;
                 if (Math.Abs(poCenter - numberCenter) > 2)
                     throw new InvalidOperationException("PO 标记与串号未垂直对齐");
-                var referenceVisual = FindReferenceVisual(window, localReference);
                 var arrowPath = referenceVisual.GetType().GetProperty("Path")?.GetValue(referenceVisual) as System.Windows.Shapes.Path
                     ?? throw new InvalidOperationException("引用箭头路径缺失");
                 var firstGeometry = arrowPath.Data as PathGeometry ?? throw new InvalidOperationException("引用箭头几何缺失");
@@ -223,6 +232,25 @@ internal static class Program
         return exitCode;
     }
 
+    private static void VerifyCookieSlots()
+    {
+        var settings = new XIslandFluent.Models.AppSettings { Cookie = "userhash=BzKMePb" };
+        settings.NormalizeCookieSlots();
+        if (settings.CookieSlots.Count != 1 || settings.CookieSlots[0].Name != "BzKMePb")
+            throw new InvalidOperationException("旧版饼干没有按系统名称迁移到槽位");
+        settings.RememberCookie("userhash=BzKMePb");
+        if (settings.CookieSlots.Count != 1)
+            throw new InvalidOperationException("相同饼干被重复记录");
+        settings.RememberCookie("userhash=AbCd123");
+        if (settings.CookieSlots.Count != 2 || settings.Cookie != "userhash=AbCd123")
+            throw new InvalidOperationException("不同饼干没有记录并切换为当前槽位");
+        settings.RememberCookie("userhash=Slot003");
+        settings.RememberCookie("userhash=Slot004");
+        settings.RememberCookie("userhash=Slot005");
+        if (settings.RememberCookie("userhash=Slot006") is not null || settings.CookieSlots.Count != XIslandFluent.Models.AppSettings.MaxCookieSlots)
+            throw new InvalidOperationException("饼干槽位上限不正确");
+    }
+
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
@@ -239,5 +267,13 @@ internal static class Program
             ?? throw new MissingFieldException("_referenceVisuals");
         var visuals = (System.Collections.IEnumerable)(field.GetValue(window) ?? throw new InvalidOperationException("引用视觉列表缺失"));
         return visuals.Cast<object>().First(x => ReferenceEquals(x.GetType().GetProperty("Link")?.GetValue(x), link));
+    }
+
+    private static object FindRenderedReferenceVisual(MainWindow window)
+    {
+        var field = typeof(MainWindow).GetField("_referenceVisuals", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingFieldException("_referenceVisuals");
+        var visuals = (System.Collections.IEnumerable)(field.GetValue(window) ?? throw new InvalidOperationException("引用视觉列表缺失"));
+        return visuals.Cast<object>().First(x => x.GetType().GetProperty("Path")?.GetValue(x) is System.Windows.Shapes.Path);
     }
 }

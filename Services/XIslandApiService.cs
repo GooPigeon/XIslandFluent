@@ -46,6 +46,7 @@ public sealed class XIslandApiService : IDisposable
     public Task<List<ForumCategory>> GetForumsAsync(CancellationToken ct = default) => GetAsync<List<ForumCategory>>("/getForumList", ct);
     public Task<List<TimelineInfo>> GetTimelinesAsync(CancellationToken ct = default) => GetAsync<List<TimelineInfo>>("/getTimelineList", ct);
     public Task<List<Post>> GetBoardAsync(int forumId, int page, CancellationToken ct = default) => GetAsync<List<Post>>($"/showf?id={forumId}&page={page}", ct);
+    public async Task ValidateCookieAsync(CancellationToken ct = default) => _ = await GetBoardAsync(18, 1, ct);
     public Task<List<Post>> GetTimelineAsync(int timelineId, int page, CancellationToken ct = default) => GetAsync<List<Post>>($"/timeline?id={timelineId}&page={page}", ct);
     public Task<Post> GetThreadAsync(int threadId, int page, bool onlyPo = false, CancellationToken ct = default) => GetAsync<Post>($"/{(onlyPo ? "po" : "thread")}?id={threadId}&page={page}", ct);
     public Task<Post> GetReferenceAsync(int postId, CancellationToken ct = default) => GetAsync<Post>($"/ref?id={postId}", ct);

@@ -48,6 +48,8 @@ public partial class MainWindow : Window
     private readonly List<ReferenceVisual> _referenceVisuals = [];
     private readonly DispatcherTimer _arrowUpdateTimer;
     private bool _arrowUpdatePending;
+    private bool _suppressCookieSlotSelection;
+    private string? _editingCookieSlotId;
     private string _currentPageTitle = "时间线";
 
     private static readonly Regex ReferenceRegex = new(@">>No\.(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -56,7 +58,7 @@ public partial class MainWindow : Window
         Color.FromRgb(22, 163, 74), Color.FromRgb(37, 99, 235), Color.FromRgb(147, 51, 234),
         Color.FromRgb(234, 88, 12), Color.FromRgb(15, 118, 110), Color.FromRgb(219, 39, 119)
     ];
-    private static readonly double[] ReferenceLaneXs = [6d, 8d, 10d, 12d];
+    private static readonly double[] ReferenceLaneXs = [4d, 9d, 14d, 19d];
     private static readonly double[] ReferenceTargetOffsets = [-6d, -2d, 2d, 6d];
 
     private sealed class ReferenceVisual(TextBlock owner, Hyperlink link, int sourceId, int targetId, int colorIndex)
@@ -79,6 +81,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         _settings = _settingsService.Load();
+        _settings.NormalizeCookieSlots();
         _api = new XIslandApiService(_settings);
         InitializeComponent();
         DataContext = this;
@@ -630,8 +633,8 @@ public partial class MainWindow : Window
     private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height, int edgeSlot)
     {
         EnsureArrow(reference);
-        const double endpointX = 24;
-        const double arrowBaseX = 16;
+        const double endpointX = 28;
+        const double arrowBaseX = 20;
         var laneX = ReferenceLaneXs[reference.ColorIndex % ReferenceLaneXs.Length];
         var geometry = new PathGeometry();
         PathFigure figure;
@@ -1070,7 +1073,7 @@ public partial class MainWindow : Window
     private void SaveSettings_Click(object sender, RoutedEventArgs e)
     {
         _settings.SubscriptionId = SubscriptionIdBox.Text.Trim();
-        _settings.Cookie = CookieBox.Password.Trim();
+        SaveCookieEditorToSlot();
         _settings.Theme = (ThemePicker.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "System";
         _settings.WatermarkImages = WatermarkCheck.IsChecked == true;
         _settings.ReferenceVisualEffects = ReferenceEffectsCheck.IsChecked == true;
@@ -1092,9 +1095,12 @@ public partial class MainWindow : Window
     private void LoadSettingsIntoControls()
     {
         if (SubscriptionIdBox is null) return;
+        _settings.NormalizeCookieSlots();
         SubscriptionIdBox.Text = _settings.SubscriptionId;
-        CookieBox.Password = _settings.Cookie;
-        CookieStatusText.Text = string.IsNullOrWhiteSpace(_settings.Cookie) ? "尚未获取" : "已保存饼干";
+        RefreshCookieSlotPicker(_settings.ActiveCookieSlotId);
+        CookieStatusText.Text = string.IsNullOrWhiteSpace(_settings.Cookie)
+            ? "尚未获取"
+            : $"当前：{AppSettings.CookieName(_settings.Cookie)} · 共 {_settings.CookieSlots.Count} 个槽位";
         WatermarkCheck.IsChecked = _settings.WatermarkImages;
         ReferenceEffectsCheck.IsChecked = _settings.ReferenceVisualEffects;
         ThemePicker.SelectedIndex = _settings.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 };
@@ -1112,15 +1118,129 @@ public partial class MainWindow : Window
         var browser = new BrowserCookieWindow { Owner = this };
         browser.CookieCaptured += async (_, cookieHeader) =>
         {
-            _settings.Cookie = cookieHeader;
+            var slot = _settings.RememberCookie(cookieHeader);
+            if (slot is null)
+            {
+                CookieStatusText.Text = $"已达到 {AppSettings.MaxCookieSlots} 个槽位，请先删除一个";
+                return;
+            }
             _settingsService.Save(_settings);
             _api.UpdateSettings(_settings);
-            CookieBox.Password = cookieHeader;
-            CookieStatusText.Text = "饼干已自动更新";
-            ShowTransientStatus("已从用户系统更新饼干，后续请求将立即使用新饼干");
+            LoadSettingsIntoControls();
+            CookieStatusText.Text = $"已记录并启用 {slot.Name} · 共 {_settings.CookieSlots.Count} 个槽位";
+            ShowTransientStatus($"已从用户系统记录并启用饼干 {slot.Name}");
             await RefreshCurrentAsync();
         };
         browser.ShowDialog();
+    }
+
+    private void CookieSlotPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressCookieSlotSelection || CookieSlotPicker.SelectedItem is not CookieSlot selected) return;
+        SaveCookieEditorToSlot();
+        ActivateCookieSlot(selected);
+        _settingsService.Save(_settings);
+        _api.UpdateSettings(_settings);
+        CookieBox.Password = selected.Cookie;
+        _editingCookieSlotId = selected.Id;
+        CookieStatusText.Text = string.IsNullOrWhiteSpace(selected.Cookie) ? "该槽位尚未设置" : $"当前：{selected.Name}";
+    }
+
+    private void AddCookieSlot_Click(object sender, RoutedEventArgs e)
+    {
+        SaveCookieEditorToSlot();
+        if (_settings.CookieSlots.Count >= AppSettings.MaxCookieSlots)
+        {
+            CookieStatusText.Text = $"最多保存 {AppSettings.MaxCookieSlots} 个饼干槽位";
+            return;
+        }
+        var slot = new CookieSlot();
+        _settings.CookieSlots.Add(slot);
+        ActivateCookieSlot(slot);
+        _settingsService.Save(_settings);
+        RefreshCookieSlotPicker(slot.Id);
+        CookieStatusText.Text = "新槽位已建立，粘贴饼干后保存即可";
+    }
+
+    private void DeleteCookieSlot_Click(object sender, RoutedEventArgs e)
+    {
+        if (CookieSlotPicker.SelectedItem is not CookieSlot selected) return;
+        _settings.CookieSlots.RemoveAll(x => x.Id == selected.Id);
+        var next = _settings.CookieSlots.FirstOrDefault();
+        if (next is not null) ActivateCookieSlot(next);
+        else
+        {
+            _settings.ActiveCookieSlotId = "";
+            _settings.Cookie = "";
+        }
+        _settingsService.Save(_settings);
+        _api.UpdateSettings(_settings);
+        RefreshCookieSlotPicker(next?.Id);
+        CookieStatusText.Text = next is null ? "尚未获取" : $"当前：{next.Name}";
+    }
+
+    private async void ValidateCookie_Click(object sender, RoutedEventArgs e)
+    {
+        SaveCookieEditorToSlot();
+        _settings.NormalizeCookieSlots();
+        _settingsService.Save(_settings);
+        _api.UpdateSettings(_settings);
+        if (string.IsNullOrWhiteSpace(_settings.Cookie))
+        {
+            CookieStatusText.Text = "当前槽位没有饼干";
+            return;
+        }
+        ValidateCookieButton.IsEnabled = false;
+        CookieStatusText.Text = $"正在通过值班室校验 {AppSettings.CookieName(_settings.Cookie)}…";
+        try
+        {
+            await _api.ValidateCookieAsync();
+            CookieStatusText.Text = $"✓ {AppSettings.CookieName(_settings.Cookie)} 有效";
+        }
+        catch (ApiException ex) when (ex.Message.Contains("饼干") || ex.Message.Contains("登入"))
+        {
+            CookieStatusText.Text = $"✕ {AppSettings.CookieName(_settings.Cookie)} 无效或已失效";
+        }
+        catch (Exception ex)
+        {
+            CookieStatusText.Text = $"校验失败：{ex.Message}";
+        }
+        finally { ValidateCookieButton.IsEnabled = true; }
+    }
+
+    private void SaveCookieEditorToSlot()
+    {
+        if (string.IsNullOrWhiteSpace(_editingCookieSlotId))
+        {
+            var remembered = _settings.RememberCookie(CookieBox.Password);
+            _editingCookieSlotId = remembered?.Id;
+            return;
+        }
+        var slot = _settings.CookieSlots.FirstOrDefault(x => x.Id == _editingCookieSlotId);
+        if (slot is null) return;
+        slot.Cookie = CookieBox.Password.Trim();
+        slot.Name = AppSettings.CookieName(slot.Cookie);
+        slot.LastUsedAt = DateTimeOffset.Now;
+        if (_settings.ActiveCookieSlotId == slot.Id) _settings.Cookie = slot.Cookie;
+    }
+
+    private void ActivateCookieSlot(CookieSlot slot)
+    {
+        _settings.ActiveCookieSlotId = slot.Id;
+        _settings.Cookie = slot.Cookie;
+        slot.LastUsedAt = DateTimeOffset.Now;
+    }
+
+    private void RefreshCookieSlotPicker(string? selectedId)
+    {
+        _suppressCookieSlotSelection = true;
+        CookieSlotPicker.ItemsSource = null;
+        CookieSlotPicker.ItemsSource = _settings.CookieSlots;
+        var selected = _settings.CookieSlots.FirstOrDefault(x => x.Id == selectedId) ?? _settings.CookieSlots.FirstOrDefault();
+        CookieSlotPicker.SelectedItem = selected;
+        CookieBox.Password = selected?.Cookie ?? "";
+        _editingCookieSlotId = selected?.Id;
+        _suppressCookieSlotSelection = false;
     }
 
     private void ApplyTheme(string theme)

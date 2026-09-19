@@ -20,11 +20,20 @@ public sealed class SettingsService
     {
         try
         {
-            if (File.Exists(_path)) return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions) ?? new();
+            if (File.Exists(_path))
+            {
+                var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions) ?? new();
+                settings.NormalizeCookieSlots();
+                return settings;
+            }
         }
         catch { }
         return new();
     }
 
-    public void Save(AppSettings settings) => File.WriteAllText(_path, JsonSerializer.Serialize(settings, JsonOptions));
+    public void Save(AppSettings settings)
+    {
+        settings.NormalizeCookieSlots();
+        File.WriteAllText(_path, JsonSerializer.Serialize(settings, JsonOptions));
+    }
 }

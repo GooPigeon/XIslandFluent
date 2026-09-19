@@ -29,7 +29,6 @@
     </Style>
     <Style TargetType="TextBlock">
         <Setter Property="TextWrapping" Value="Wrap"/>
-        <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     </Style>
     <Style TargetType="Button" x:Key="FluentButton">
         <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
