@@ -588,12 +588,13 @@ public partial class MainWindow : Window
                     : new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2);
                 var sourcePoint = ownerTransform.Transform(sourceInOwner);
                 var targetTopLeft = targetCard.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(0, 0));
-                var targetOffset = (reference.ColorIndex - (ReferenceColors.Length - 1) / 2d) * 7;
+                var targetOffset = reference.ColorIndex % 2 == 0 ? -4d : 4d;
                 var targetY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2) + targetOffset;
                 targetY = Math.Clamp(targetY, targetTopLeft.Y + 10, targetTopLeft.Y + Math.Max(10, targetCard.ActualHeight - 10));
                 var sourceOnScreen = sourcePoint.Y >= 0 && sourcePoint.Y <= height;
                 var targetOnScreen = targetTopLeft.Y + targetCard.ActualHeight >= 0 && targetTopLeft.Y <= height;
-                var shouldShow = (sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetY) <= maxDistance;
+                var crossesViewport = (sourcePoint.Y < 0 && targetY > height) || (sourcePoint.Y > height && targetY < 0);
+                var shouldShow = crossesViewport || ((sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetY) <= maxDistance);
                 if (shouldShow)
                 {
                     UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height);
@@ -619,9 +620,9 @@ public partial class MainWindow : Window
     private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height)
     {
         EnsureArrow(reference);
-        const double endpointX = 44;
-        const double arrowBaseX = 36;
-        var laneX = 4 + reference.ColorIndex * 6;
+        const double endpointX = 24;
+        const double arrowBaseX = 16;
+        var laneX = reference.ColorIndex % 2 == 0 ? 6d : 12d;
         var geometry = new PathGeometry();
         PathFigure figure;
         PointCollection arrowPoints;
@@ -645,11 +646,14 @@ public partial class MainWindow : Window
             var edgeY = targetY < 0 ? 1d : height - 1;
             var direction = targetY < 0 ? -1d : 1d;
             var arrowBaseY = edgeY - direction * 8;
-            figure = new PathFigure { StartPoint = new Point(laneX, sourceY), IsClosed = false };
+            var radius = Math.Min(10, Math.Abs(sourceY - arrowBaseY) / 2);
+            figure = new PathFigure { StartPoint = new Point(endpointX, sourceY), IsClosed = false };
+            figure.Segments.Add(new BezierSegment(
+                new Point(endpointX - 5, sourceY), new Point(laneX, sourceY + direction * radius / 2), new Point(laneX, sourceY + direction * radius), true));
             figure.Segments.Add(new LineSegment(new Point(laneX, arrowBaseY), true));
             arrowPoints = VerticalArrow(laneX, edgeY, direction);
         }
-        else
+        else if (targetOnScreen)
         {
             var edgeY = sourceY < 0 ? 1d : height - 1;
             var direction = sourceY < 0 ? 1d : -1d;
@@ -659,6 +663,16 @@ public partial class MainWindow : Window
             figure.Segments.Add(new BezierSegment(
                 new Point(laneX, targetY - direction * radius / 2), new Point(arrowBaseX - 2, targetY), new Point(arrowBaseX, targetY), true));
             arrowPoints = RightArrow(endpointX, targetY);
+        }
+        else
+        {
+            var sourceEdgeY = sourceY < 0 ? 1d : height - 1;
+            var targetEdgeY = targetY < 0 ? 1d : height - 1;
+            var direction = targetY < 0 ? -1d : 1d;
+            var arrowBaseY = targetEdgeY - direction * 8;
+            figure = new PathFigure { StartPoint = new Point(laneX, sourceEdgeY), IsClosed = false };
+            figure.Segments.Add(new LineSegment(new Point(laneX, arrowBaseY), true));
+            arrowPoints = VerticalArrow(laneX, targetEdgeY, direction);
         }
         geometry.Figures.Add(figure);
         reference.Path!.Data = geometry;

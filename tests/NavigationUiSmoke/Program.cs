@@ -62,10 +62,10 @@ internal static class Program
                     .GroupBy(x => ((SolidColorBrush)x.Stroke).Color)
                     .Select(x => ((PathGeometry)x.First().Data).Figures[0].Segments.OfType<LineSegment>().First().Point.X)
                     .ToList();
-                if (laneByColor.Count > 1 && laneByColor.Distinct().Count() != laneByColor.Count)
-                    throw new InvalidOperationException("不同颜色的引用竖线仍然共用同一轨道");
                 var orderedLanes = laneByColor.Distinct().OrderBy(x => x).ToList();
-                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 5))
+                if (orderedLanes.Count > 2)
+                    throw new InvalidOperationException("引用箭头使用了超过两条轨道");
+                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 4 || x > 8))
                     throw new InvalidOperationException("不同引用竖线间距不足");
 
                 var poPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.IsPo);
@@ -128,6 +128,30 @@ internal static class Program
                 var targetContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(targetPost) ?? throw new InvalidOperationException("引用目标容器缺失"));
                 var targetCard = Descendants<Border>(targetContainer).First(x => x.Tag is int id && id == targetId);
                 var targetTop = targetCard.TransformToVisual(arrowCanvas).Transform(new Point(0, 0)).Y;
+                double? crossOffset = null;
+                if (sourceY > targetTop + targetCard.ActualHeight + replyScroll.ViewportHeight + 4)
+                {
+                    var minimum = targetTop + targetCard.ActualHeight + 2;
+                    var maximum = sourceY - replyScroll.ViewportHeight - 2;
+                    crossOffset = (minimum + maximum) / 2;
+                }
+                else if (targetTop > sourceY + replyScroll.ViewportHeight + 4)
+                {
+                    var minimum = sourceY + 2;
+                    var maximum = targetTop - replyScroll.ViewportHeight - 2;
+                    crossOffset = (minimum + maximum) / 2;
+                }
+                if (crossOffset is not null)
+                {
+                    replyScroll.ScrollToVerticalOffset(Math.Max(0, crossOffset.Value));
+                    window.UpdateLayout();
+                    updateArrows.Invoke(window, null);
+                    var crossesVisible = (bool)(referenceVisual.GetType().GetProperty("ArrowVisible")?.GetValue(referenceVisual) ?? false);
+                    if (!crossesVisible) throw new InvalidOperationException("引用与目标分处屏幕上下外侧时没有显示箭头");
+                    var crossingGeometry = arrowPath.Data as PathGeometry ?? throw new InvalidOperationException("跨屏箭头几何缺失");
+                    if (crossingGeometry.Figures[0].Segments.Count != 1 || crossingGeometry.Figures[0].Segments[0] is not LineSegment)
+                        throw new InvalidOperationException("跨屏箭头不是贯穿视口的直线");
+                }
                 var edgeOffset = targetTop < sourceY
                     ? targetTop + targetCard.ActualHeight + 4
                     : targetTop - replyScroll.ViewportHeight - 4;
