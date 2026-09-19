@@ -1324,16 +1324,28 @@ public partial class MainWindow : Window
     private void ApplyTheme(string theme)
     {
         var useDark = theme == "Dark" || (theme == "System" && IsSystemDarkMode());
-        var resources = Application.Current.Resources;
-        resources["TextColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#FFFFFF" : "#1A1A1A");
-        resources["SubtleTextColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#CFCFCF" : "#616161");
-        resources["SurfaceColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#202020" : "#F9F9F9");
-        resources["CardColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#2B2B2B" : "#FDFDFD");
-        resources["LayerColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#272727" : "#F3F3F3");
-        resources["StrokeColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#28FFFFFF" : "#16000000");
-        resources["HoverColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#12FFFFFF" : "#0A000000");
-        resources["PressedColor"] = (Color)ColorConverter.ConvertFromString(useDark ? "#18FFFFFF" : "#0F000000");
+        SetThemeColor("TextColor", "TextBrush", useDark ? "#FFFFFF" : "#1A1A1A");
+        SetThemeColor("SubtleTextColor", "SubtleTextBrush", useDark ? "#CFCFCF" : "#616161");
+        SetThemeColor("SurfaceColor", "SurfaceBrush", useDark ? "#202020" : "#F9F9F9");
+        SetThemeColor("CardColor", "CardBrush", useDark ? "#2B2B2B" : "#FDFDFD");
+        SetThemeColor("LayerColor", "LayerBrush", useDark ? "#272727" : "#F3F3F3");
+        SetThemeColor("StrokeColor", "StrokeBrush", useDark ? "#28FFFFFF" : "#16000000");
+        SetThemeColor("HoverColor", "HoverBrush", useDark ? "#12FFFFFF" : "#0A000000");
+        SetThemeColor("PressedColor", "PressedBrush", useDark ? "#18FFFFFF" : "#0F000000");
         ApplyWindowBackdrop();
+    }
+
+    private static void SetThemeColor(string colorKey, string brushKey, string value)
+    {
+        var color = (Color)ColorConverter.ConvertFromString(value);
+        var resources = Application.Current.Resources;
+        resources[colorKey] = color;
+        resources[brushKey] = new SolidColorBrush(color);
+        foreach (var dictionary in resources.MergedDictionaries.Where(x => x.Contains(colorKey) || x.Contains(brushKey)))
+        {
+            dictionary[colorKey] = color;
+            dictionary[brushKey] = new SolidColorBrush(color);
+        }
     }
 
     private static bool IsSystemDarkMode()

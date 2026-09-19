@@ -9,13 +9,13 @@
         <Border Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1" Padding="18,12">
             <DockPanel>
                 <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Content="重新加载" Click="Reload_Click"/>
-                <StackPanel><TextBlock Text="在用户系统中应用饼干" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="可手动点击网页中的“应用”，也可让客户端依次模拟点击并记录每次真正生效的 userhash。" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
+                <StackPanel><TextBlock Text="从用户系统获取饼干" FontSize="18" FontWeight="SemiBold"/><TextBlock Text="自动获取会读取用户系统提供的导出凭据，不改变网页当前使用的饼干；也可手动点击“应用”后使用当前饼干。" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
             </DockPanel>
         </Border>
         <wv2:WebView2 x:Name="Browser" Grid.Row="1"/>
         <Border Grid.Row="2" Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0" Padding="18,10">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource FluentButton}" Content="关闭" Click="Close_Click" Margin="0,0,8,0"/><Button x:Name="AutoApplyCookiesButton" Style="{StaticResource FluentButton}" Content="自动应用并记录全部" Click="AutoApplyCookies_Click" Margin="0,0,8,0"/><Button Style="{StaticResource AccentButton}" Content="使用当前饼干" Click="UseCurrentCookie_Click"/></StackPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><Button Style="{StaticResource FluentButton}" Content="关闭" Click="Close_Click" Margin="0,0,8,0"/><Button x:Name="AutoApplyCookiesButton" Style="{StaticResource FluentButton}" Content="自动获取全部" Click="AutoApplyCookies_Click" Margin="0,0,8,0"/><Button Style="{StaticResource AccentButton}" Content="使用当前饼干" Click="UseCurrentCookie_Click"/></StackPanel>
                 <TextBlock x:Name="BrowserStatusText" Text="正在打开 X 岛…" VerticalAlignment="Center" Foreground="{DynamicResource SubtleTextBrush}"/>
             </DockPanel>
         </Border>

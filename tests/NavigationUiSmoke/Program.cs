@@ -22,6 +22,14 @@ internal static class Program
             Source = new Uri("pack://application:,,,/XIsland;component/Themes/Fluent.xaml", UriKind.Absolute)
         });
         var window = new MainWindow { ShowInTaskbar = false, ShowActivated = false, Left = -10000, Top = -10000, Opacity = 0 };
+        var applyTheme = typeof(MainWindow).GetMethod("ApplyTheme", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException("ApplyTheme");
+        applyTheme.Invoke(window, ["Dark"]);
+        var darkCard = Application.Current.Resources["CardBrush"] as SolidColorBrush;
+        var darkSurface = Application.Current.Resources["SurfaceBrush"] as SolidColorBrush;
+        if (darkCard?.Color != (Color)ColorConverter.ConvertFromString("#2B2B2B") ||
+            darkSurface?.Color != (Color)ColorConverter.ConvertFromString("#202020"))
+            throw new InvalidOperationException("深色主题没有更新应用内容画刷");
         var expectedWidth = Math.Max(window.MinWidth, Math.Round(SystemParameters.WorkArea.Width * 0.6));
         var expectedHeight = Math.Max(window.MinHeight, Math.Round(SystemParameters.WorkArea.Height * 0.6));
         if (Math.Abs(window.Width - expectedWidth) > 0.01 || Math.Abs(window.Height - expectedHeight) > 0.01)
@@ -38,7 +46,11 @@ internal static class Program
         {
             try
             {
+                applyTheme.Invoke(window, ["Dark"]);
+                window.UpdateLayout();
                 await Task.Delay(5000);
+                if (window.Background is not SolidColorBrush background || background.Color != (Color)ColorConverter.ConvertFromString("#202020"))
+                    throw new InvalidOperationException("深色主题没有应用到主窗口内容区");
                 var openThread = typeof(MainWindow).GetMethod("OpenThreadAsync", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("OpenThreadAsync");
                 var task = (Task?)openThread.Invoke(window, [ThreadId, 1]) ?? throw new InvalidOperationException("OpenThreadAsync did not return Task");

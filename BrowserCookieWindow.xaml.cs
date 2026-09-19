@@ -17,7 +17,7 @@ public partial class BrowserCookieWindow : Window
     private string? _baselineCookie;
     private bool _initialized;
     private bool _captureInProgress;
-    private bool _batchApplying;
+    private int _lastSyncedCount;
 
     private readonly Dictionary<string, string> _cookieNames = new(StringComparer.Ordinal);
 
@@ -55,7 +55,6 @@ public partial class BrowserCookieWindow : Window
 
     private async void Browser_NavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
     {
-        if (_batchApplying) return;
         if (!e.IsSuccess)
         {
             BrowserStatusText.Text = $"页面加载失败：{e.WebErrorStatus}";
@@ -67,27 +66,29 @@ public partial class BrowserCookieWindow : Window
             _baselineCookie = current;
             _initialized = true;
             _cookieTimer.Start();
-            BrowserStatusText.Text = "请在网页的饼干列表中点击“应用”";
+            await SyncUserCookiesAsync(current, false);
+            BrowserStatusText.Text = _lastSyncedCount > 0
+                ? $"已自动获取 {_lastSyncedCount} 个饼干"
+                : "请先登录用户系统";
             return;
         }
         if (!string.IsNullOrWhiteSpace(current) && !string.Equals(current, _baselineCookie, StringComparison.Ordinal))
         {
             _baselineCookie = current;
-            var name = await ResolveCurrentCookieNameAsync(current);
-            ApplyCookie(current, name, "检测到网页已应用饼干，客户端已记录并启用");
+            if (!await SyncUserCookiesAsync(current, true))
+                ApplyCookie(current, "待同步饼干", "检测到网页已应用饼干，客户端已记录并启用");
         }
-        else BrowserStatusText.Text = "请在网页的饼干列表中点击“应用”";
     }
 
     private async void CookieTimer_Tick(object? sender, EventArgs e)
     {
-        if (_captureInProgress || _batchApplying || !_initialized) return;
+        if (_captureInProgress || !_initialized) return;
         var current = await ReadUserHashAsync();
         if (!string.IsNullOrWhiteSpace(current) && !string.Equals(current, _baselineCookie, StringComparison.Ordinal))
         {
             _baselineCookie = current;
-            var name = await ResolveCurrentCookieNameAsync(current);
-            ApplyCookie(current, name, "检测到网页已应用饼干，客户端已记录并启用");
+            if (!await SyncUserCookiesAsync(current, true))
+                ApplyCookie(current, "待同步饼干", "检测到网页已应用饼干，客户端已记录并启用");
         }
     }
 
@@ -100,102 +101,33 @@ public partial class BrowserCookieWindow : Window
             return;
         }
         _baselineCookie = current;
-        var name = await ResolveCurrentCookieNameAsync(current);
-        ApplyCookie(current, name, "当前网页饼干已应用到客户端");
+        if (!await SyncUserCookiesAsync(current, true))
+            ApplyCookie(current, "待同步饼干", "当前网页饼干已应用到客户端");
+        else BrowserStatusText.Text = $"当前网页饼干已应用到客户端：{CookieNameFor(current)}";
     }
 
     private async void AutoApplyCookies_Click(object sender, RoutedEventArgs e)
     {
-        if (Browser.CoreWebView2 is null || _batchApplying) return;
+        if (Browser.CoreWebView2 is null) return;
         AutoApplyCookiesButton.IsEnabled = false;
-        _batchApplying = true;
-        var original = await ReadUserHashAsync();
-        string? originalId = null;
-        string? lastApplied = null;
-        CookieListRow? lastRow = null;
-        var captured = 0;
+        BrowserStatusText.Text = "正在读取用户系统提供的饼干凭据…";
         try
         {
-            var rows = await LoadCookieRowsAsync();
-            if (rows.Count == 0)
-            {
-                BrowserStatusText.Text = "没有读取到饼干列表，请先登录用户系统";
-                return;
-            }
-
-            for (var index = 0; index < rows.Count; index++)
-            {
-                var row = rows[index];
-                BrowserStatusText.Text = $"正在模拟应用 {row.Name}（{index + 1}/{rows.Count}）…";
-                if (!await ClickApplyAndWaitAsync(row.Id)) continue;
-                var current = await ReadUserHashAsync();
-                if (string.IsNullOrWhiteSpace(current)) continue;
-                if (!string.IsNullOrWhiteSpace(original) && NormalizeCredential(current) == NormalizeCredential(original)) originalId = row.Id;
-                _cookieNames[NormalizeCredential(current)] = row.Name;
-                CookieCaptured?.Invoke(this, new CookieCapturedEventArgs(NormalizeCookieHeader(current), row.Name, false));
-                lastApplied = current;
-                lastRow = row;
-                captured++;
-            }
-
-            if (!string.IsNullOrWhiteSpace(originalId))
-            {
-                BrowserStatusText.Text = "正在恢复原先使用的饼干…";
-                await ClickApplyAndWaitAsync(originalId);
-                var restored = await ReadUserHashAsync();
-                var restoredRow = rows.First(x => x.Id == originalId);
-                if (!string.IsNullOrWhiteSpace(restored))
-                {
-                    _baselineCookie = restored;
-                    _cookieNames[NormalizeCredential(restored)] = restoredRow.Name;
-                    CookieCaptured?.Invoke(this, new CookieCapturedEventArgs(NormalizeCookieHeader(restored), restoredRow.Name, true));
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(lastApplied) && lastRow is not null)
-            {
-                _baselineCookie = lastApplied;
-                CookieCaptured?.Invoke(this, new CookieCapturedEventArgs(NormalizeCookieHeader(lastApplied), lastRow.Name, true));
-            }
-            BrowserStatusText.Text = $"已通过网页应用按钮记录 {captured} 个饼干";
+            var current = await ReadUserHashAsync();
+            var matched = await SyncUserCookiesAsync(current, false);
+            BrowserStatusText.Text = _lastSyncedCount > 0
+                ? $"已自动获取并记录 {_lastSyncedCount} 个可用饼干"
+                : "没有读取到饼干列表，请先登录用户系统";
+            if (matched && !string.IsNullOrWhiteSpace(current)) _baselineCookie = current;
         }
         catch (Exception ex)
         {
-            BrowserStatusText.Text = $"自动应用失败：{ex.Message}";
+            BrowserStatusText.Text = $"自动获取失败：{ex.Message}";
         }
         finally
         {
-            _batchApplying = false;
             AutoApplyCookiesButton.IsEnabled = true;
         }
-    }
-
-    private async Task<List<CookieListRow>> LoadCookieRowsAsync()
-    {
-        if (Browser.CoreWebView2 is null) return [];
-        var sessionCookies = await Browser.CoreWebView2.CookieManager.GetCookiesAsync("https://www.nmbxd1.com/");
-        var cookieHeader = string.Join("; ", sessionCookies.Select(x => $"{x.Name}={x.Value}"));
-        if (string.IsNullOrWhiteSpace(cookieHeader)) return [];
-        using var handler = new HttpClientHandler { UseCookies = false, AutomaticDecompression = DecompressionMethods.All };
-        using var client = new HttpClient(handler) { BaseAddress = new Uri("https://www.nmbxd1.com/") };
-        client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", cookieHeader);
-        client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XIslandFluent/1.7.0");
-        var html = await client.GetStringAsync("Member/User/Cookie/index.html");
-        return ParseCookieRows(html);
-    }
-
-    private async Task<bool> ClickApplyAndWaitAsync(string id)
-    {
-        if (Browser.CoreWebView2 is null) return false;
-        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Completed(object? _, CoreWebView2NavigationCompletedEventArgs args) => completion.TrySetResult(args.IsSuccess);
-        Browser.CoreWebView2.NavigationCompleted += Completed;
-        try
-        {
-            Browser.CoreWebView2.Navigate($"https://www.nmbxd1.com/Member/User/Cookie/switchTo/id/{Uri.EscapeDataString(id)}.html");
-            var finished = await Task.WhenAny(completion.Task, Task.Delay(TimeSpan.FromSeconds(15)));
-            return finished == completion.Task && await completion.Task;
-        }
-        finally { Browser.CoreWebView2.NavigationCompleted -= Completed; }
     }
 
     private async Task<string?> ReadUserHashAsync()
@@ -210,20 +142,18 @@ public partial class BrowserCookieWindow : Window
         finally { _captureInProgress = false; }
     }
 
-    private async Task<string> ResolveCurrentCookieNameAsync(string current)
+    private async Task<bool> SyncUserCookiesAsync(string? current, bool activateCurrent)
     {
-        if (Browser.CoreWebView2 is null) return "待同步饼干";
-        var normalizedCurrent = NormalizeCredential(current);
-        if (_cookieNames.TryGetValue(normalizedCurrent, out var cachedName)) return cachedName;
+        if (Browser.CoreWebView2 is null) return false;
         try
         {
             var sessionCookies = await Browser.CoreWebView2.CookieManager.GetCookiesAsync("https://www.nmbxd1.com/");
             var cookieHeader = string.Join("; ", sessionCookies.Select(x => $"{x.Name}={x.Value}"));
-            if (string.IsNullOrWhiteSpace(cookieHeader)) return "待同步饼干";
+            if (string.IsNullOrWhiteSpace(cookieHeader)) return false;
             using var handler = new HttpClientHandler { UseCookies = false, AutomaticDecompression = DecompressionMethods.All };
             using var client = new HttpClient(handler) { BaseAddress = new Uri("https://www.nmbxd1.com/") };
             client.DefaultRequestHeaders.TryAddWithoutValidation("Cookie", cookieHeader);
-            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XIslandFluent/1.7.0");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "XIslandFluent/1.7.1");
             var indexHtml = await client.GetStringAsync("Member/User/Cookie/index.html");
             var rows = ParseCookieRows(indexHtml);
             var exported = await Task.WhenAll(rows.Select(async row =>
@@ -237,6 +167,8 @@ public partial class BrowserCookieWindow : Window
                 catch { return null; }
             }));
             var cookies = exported.OfType<ExportedCookie>().ToList();
+            if (cookies.Count == 0) return false;
+            _lastSyncedCount = cookies.Count;
 
             foreach (var item in cookies)
             {
@@ -244,11 +176,17 @@ public partial class BrowserCookieWindow : Window
                 if (!string.IsNullOrWhiteSpace(value) && !string.IsNullOrWhiteSpace(item.Name))
                     _cookieNames[NormalizeCredential(value)] = item.Name;
             }
-            return _cookieNames.TryGetValue(normalizedCurrent, out var name) ? name : "待同步饼干";
+            var normalizedCurrent = NormalizeCredential(current);
+            var selected = cookies.FirstOrDefault(x => string.Equals(NormalizeCredential(x.Cookie), normalizedCurrent, StringComparison.Ordinal));
+            foreach (var item in cookies.Where(x => !ReferenceEquals(x, selected)))
+                CookieCaptured?.Invoke(this, new CookieCapturedEventArgs(NormalizeCookieHeader(item.Cookie), item.Name, false));
+            if (selected is not null)
+                CookieCaptured?.Invoke(this, new CookieCapturedEventArgs(NormalizeCookieHeader(selected.Cookie), selected.Name, activateCurrent));
+            return selected is not null;
         }
         catch
         {
-            return "待同步饼干";
+            return false;
         }
     }
 
@@ -286,17 +224,18 @@ public partial class BrowserCookieWindow : Window
 
     private static string PlainText(string html) => WebUtility.HtmlDecode(Regex.Replace(html, "<[^>]+>", "")).Replace("\u00a0", " ").Trim();
 
+    private string CookieNameFor(string value) => _cookieNames.TryGetValue(NormalizeCredential(value), out var name) ? name : "待同步饼干";
+
     private static string NormalizeCookieHeader(string cookie)
     {
-        var credential = UserHashValue(cookie) ?? cookie.Trim();
-        return $"userhash={Uri.EscapeDataString(NormalizeCredential(credential))}";
+        var credential = UserHashValue(cookie);
+        return credential is null ? cookie.Trim() : $"userhash={credential}";
     }
 
     private static string NormalizeCredential(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return "";
-        try { return Uri.UnescapeDataString(value.Trim()); }
-        catch { return value.Trim(); }
+        return UserHashValue(value.Trim()) ?? value.Trim();
     }
 
     private static string? UserHashValue(string cookie)
