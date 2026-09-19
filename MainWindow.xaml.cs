@@ -686,8 +686,9 @@ public partial class MainWindow : Window
         var brush = ReferenceBrushes[colorIndex];
         reference.Path!.Stroke = brush;
         reference.ArrowHead!.Fill = brush;
-        const double endpointX = 28;
-        const double arrowBaseX = 24;
+        // 卡片从 X=28 开始；箭头尖端统一深入卡片 10px，所有轨道以同一横坐标收尾。
+        const double endpointX = 38;
+        const double arrowBaseX = 30;
         var laneX = ReferenceLaneXs[lane];
         var geometry = new PathGeometry();
         PathFigure figure;

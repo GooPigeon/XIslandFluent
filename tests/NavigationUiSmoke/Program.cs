@@ -22,6 +22,8 @@ internal static class Program
             Source = new Uri("pack://application:,,,/XIsland;component/Themes/Fluent.xaml", UriKind.Absolute)
         });
         var window = new MainWindow { ShowInTaskbar = false, ShowActivated = false, Left = -10000, Top = -10000, Opacity = 0 };
+        if (Math.Abs(window.Width - 1600) > 0.01 || Math.Abs(window.Height - 900) > 0.01)
+            throw new InvalidOperationException("主窗口默认尺寸未保持宽屏 1600×900");
         var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         timeout.Tick += (_, _) =>
         {
@@ -79,6 +81,11 @@ internal static class Program
                     throw new InvalidOperationException("引用轨道超出预留区域");
                 if (orderedLanes.Any(x => Math.Abs((x - 3) / 5 - Math.Round((x - 3) / 5)) > 0.01))
                     throw new InvalidOperationException("引用箭头没有落在紧凑轨道上");
+                var cardArrowHeads = arrowCanvas.Children.OfType<System.Windows.Shapes.Polygon>()
+                    .Where(x => x.Visibility == Visibility.Visible && x.Points.Count == 3 && Math.Abs(x.Points.Max(p => p.X) - x.Points.Min(p => p.X) - 8) < 0.01)
+                    .ToList();
+                if (cardArrowHeads.Count == 0 || cardArrowHeads.Any(x => Math.Abs(x.Points.Max(p => p.X) - 38) > 0.01))
+                    throw new InvalidOperationException("卡片引用箭头没有统一深入卡片的横坐标");
                 for (var i = 0; i < visiblePaths.Count; i++)
                 for (var j = i + 1; j < visiblePaths.Count; j++)
                 {
