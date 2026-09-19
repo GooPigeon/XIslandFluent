@@ -22,8 +22,10 @@ internal static class Program
             Source = new Uri("pack://application:,,,/XIsland;component/Themes/Fluent.xaml", UriKind.Absolute)
         });
         var window = new MainWindow { ShowInTaskbar = false, ShowActivated = false, Left = -10000, Top = -10000, Opacity = 0 };
-        if (Math.Abs(window.Width - 1600) > 0.01 || Math.Abs(window.Height - 900) > 0.01)
-            throw new InvalidOperationException("主窗口默认尺寸未保持宽屏 1600×900");
+        var expectedWidth = Math.Max(window.MinWidth, Math.Round(SystemParameters.WorkArea.Width * 0.6));
+        var expectedHeight = Math.Max(window.MinHeight, Math.Round(SystemParameters.WorkArea.Height * 0.6));
+        if (Math.Abs(window.Width - expectedWidth) > 0.01 || Math.Abs(window.Height - expectedHeight) > 0.01)
+            throw new InvalidOperationException("主窗口默认尺寸未按工作区的 60% 计算");
         var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         timeout.Tick += (_, _) =>
         {
@@ -47,6 +49,7 @@ internal static class Program
                 await task;
                 if (overlay.Visibility != Visibility.Collapsed || replies.Items.Count == 0)
                     throw new InvalidOperationException("新串加载完成状态不正确");
+                var firstPageCount = replies.Items.Count;
                 window.UpdateLayout();
                 await Task.Delay(250);
                 var searchButton = (Button)(window.FindName("SearchButton") ?? throw new InvalidOperationException("SearchButton not found"));
@@ -56,12 +59,22 @@ internal static class Program
                 _ = window.FindName("CookieSlotPicker") ?? throw new InvalidOperationException("CookieSlotPicker not found");
                 _ = window.FindName("ValidateCookieButton") ?? throw new InvalidOperationException("ValidateCookieButton not found");
                 var loadedIds = replies.Items.Cast<XIslandFluent.Models.Post>().Select(x => x.Id).ToHashSet();
-                var localReference = Descendants<TextBlock>(replies)
-                    .SelectMany(x => x.Inlines.OfType<Hyperlink>())
+                var richTextPosts = Descendants<RichTextBox>(replies).ToList();
+                if (richTextPosts.Count == 0 || richTextPosts.Any(x => !x.IsReadOnly || !x.IsDocumentEnabled))
+                    throw new InvalidOperationException("串内正文没有使用可选择复制的只读富文本");
+                var selectablePost = richTextPosts.First();
+                selectablePost.SelectAll();
+                if (string.IsNullOrWhiteSpace(selectablePost.Selection.Text))
+                    throw new InvalidOperationException("串内正文无法被选择复制");
+                selectablePost.Selection.Select(selectablePost.Document.ContentStart, selectablePost.Document.ContentStart);
+                var localReference = richTextPosts
+                    .SelectMany(Hyperlinks)
                     .FirstOrDefault(x => x.Tag is int id && loadedIds.Contains(id))
                     ?? throw new InvalidOperationException("没有生成可测试的本页引用链接");
                 var updateArrows = typeof(MainWindow).GetMethod("UpdateReferenceArrows", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("UpdateReferenceArrows");
+                richTextPosts.First(x => Hyperlinks(x).Contains(localReference)).BringIntoView();
+                window.UpdateLayout();
                 updateArrows.Invoke(window, null);
                 var arrowCanvas = (Canvas)(window.FindName("ReferenceArrowCanvas") ?? throw new InvalidOperationException("ReferenceArrowCanvas not found"));
                 if (arrowCanvas.Children.Count == 0)
@@ -119,6 +132,11 @@ internal static class Program
 
                 var mouseEnter = typeof(MainWindow).GetMethod("ReferenceLink_MouseEnter", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("ReferenceLink_MouseEnter");
+                var hoverTargetId = (int)(localReference.Tag ?? throw new InvalidOperationException("引用目标编号缺失"));
+                var hoverTarget = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.Id == hoverTargetId);
+                ((FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(hoverTarget)
+                    ?? throw new InvalidOperationException("引用目标容器缺失"))).BringIntoView();
+                window.UpdateLayout();
                 mouseEnter.Invoke(window, [localReference, new MouseEventArgs(Mouse.PrimaryDevice, 0)]);
                 updateArrows.Invoke(window, null);
                 var targetHighlight = Descendants<Border>(replies).FirstOrDefault(x => x.Uid == "ReferenceHighlight" && x.Visibility == Visibility.Visible);
@@ -147,8 +165,9 @@ internal static class Program
                     throw new InvalidOperationException("引用目标高亮没有渐出消失");
 
                 var replyScroll = (ScrollViewer)(window.FindName("ReplyScrollViewer") ?? throw new InvalidOperationException("ReplyScrollViewer not found"));
-                var sourceOwner = Descendants<TextBlock>(replies).First(x => x.Inlines.Contains(localReference));
-                if (Math.Abs(sourceOwner.FontSize - 16) > 0.01 || Math.Abs(sourceOwner.LineHeight - 22) > 0.01)
+                var sourceOwner = Descendants<RichTextBox>(replies).First(x => Hyperlinks(x).Contains(localReference));
+                var sourceParagraph = sourceOwner.Document.Blocks.OfType<Paragraph>().First();
+                if (Math.Abs(sourceParagraph.FontSize - 16) > 0.01 || Math.Abs(sourceParagraph.LineHeight - 22) > 0.01)
                     throw new InvalidOperationException("串内正文排版未匹配网页版 16px/22px");
                 var sourceRect = localReference.ContentStart.GetCharacterRect(LogicalDirection.Forward);
                 var sourceY = sourceOwner.TransformToVisual(arrowCanvas).Transform(new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2)).Y;
@@ -206,10 +225,17 @@ internal static class Program
                 replyScroll.ScrollToTop();
                 window.UpdateLayout();
                 updateArrows.Invoke(window, null);
-                var firstPageCount = replies.Items.Count;
+                _ = window.FindName("FirstThreadPageButton") ?? throw new InvalidOperationException("串内首页按钮缺失");
+                _ = window.FindName("LastThreadPageButton") ?? throw new InvalidOperationException("串内末页按钮缺失");
+                var lastPageField = typeof(MainWindow).GetField("_currentThreadLastPage", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingFieldException("_currentThreadLastPage");
+                var expectedLastPage = Math.Max(1, (replies.Items.Cast<XIslandFluent.Models.Post>().First().ReplyCount + 19) / 20);
+                if ((int)(lastPageField.GetValue(window) ?? 0) != expectedLastPage)
+                    throw new InvalidOperationException("串内末页页码计算不正确");
                 var loadNext = typeof(MainWindow).GetMethod("LoadNextThreadPageAsync", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("LoadNextThreadPageAsync");
                 await ((Task?)loadNext.Invoke(window, null) ?? throw new InvalidOperationException("LoadNextThreadPageAsync did not return Task"));
+                for (var i = 0; i < 40 && replies.Items.Count <= firstPageCount; i++) await Task.Delay(100);
                 if (replies.Items.Count <= firstPageCount)
                     throw new InvalidOperationException("滚动续页没有追加新回复");
                 var dividerFound = replies.Items.Cast<XIslandFluent.Models.Post>().Any(x => x.ShowPageDivider);
@@ -288,6 +314,9 @@ internal static class Program
             foreach (var nested in Descendants<T>(child)) yield return nested;
         }
     }
+
+    private static IEnumerable<Hyperlink> Hyperlinks(RichTextBox richTextBox) =>
+        richTextBox.Document.Blocks.OfType<Paragraph>().SelectMany(x => x.Inlines.OfType<Hyperlink>());
 
     private static object FindReferenceVisual(MainWindow window, Hyperlink link)
     {

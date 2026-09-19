@@ -20,22 +20,41 @@ internal static class Program
             Source = new Uri("pack://application:,,,/XIsland;component/Themes/Fluent.xaml", UriKind.Absolute)
         });
         var window = new BrowserCookieWindow { ShowInTaskbar = false, WindowState = WindowState.Minimized, Opacity = 0 };
-        var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
-        timeout.Tick += (_, _) =>
+        var timeout = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        var monitor = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        void Finish(int code, string message)
         {
+            exitCode = code;
             timeout.Stop();
-            exitCode = initialized ? 0 : 1;
-            var status = (window.FindName("BrowserStatusText") as System.Windows.Controls.TextBlock)?.Text ?? "状态不可用";
-            var path = (window.FindName("Browser") as Microsoft.Web.WebView2.Wpf.WebView2)?.Source?.AbsolutePath ?? "页面不可用";
-            Console.WriteLine(initialized
-                ? $"PASS WebView2 initialized; automatic cookie sync names={names.Count}; page={path}; status={status}"
-                : "FAIL WebView2 initialization timed out");
+            monitor.Stop();
+            Console.WriteLine(message);
             window.Close();
             app.Shutdown(exitCode);
+        }
+        timeout.Tick += (_, _) =>
+        {
+            var status = (window.FindName("BrowserStatusText") as System.Windows.Controls.TextBlock)?.Text ?? "状态不可用";
+            var path = (window.FindName("Browser") as Microsoft.Web.WebView2.Wpf.WebView2)?.Source?.AbsolutePath ?? "页面不可用";
+            Finish(1, initialized
+                ? $"FAIL WebView2 apply simulation timed out; names={names.Count}; page={path}; status={status}"
+                : "FAIL WebView2 initialization timed out");
         };
-        window.BrowserReady += (_, _) =>
+        monitor.Tick += (_, _) =>
+        {
+            var status = (window.FindName("BrowserStatusText") as System.Windows.Controls.TextBlock)?.Text ?? "";
+            if (status.StartsWith("已通过网页应用按钮记录", StringComparison.Ordinal))
+                Finish(names.Count > 0 ? 0 : 1, $"PASS WebView2 apply simulation captured names={names.Count}; status={status}");
+            else if (status.StartsWith("没有读取到饼干列表", StringComparison.Ordinal))
+                Finish(0, $"PASS WebView2 initialized; apply simulation skipped because user system is logged out; status={status}");
+            else if (status.StartsWith("自动应用失败", StringComparison.Ordinal))
+                Finish(1, $"FAIL {status}");
+        };
+        window.BrowserReady += async (_, _) =>
         {
             initialized = true;
+            await Task.Delay(4000);
+            if (window.FindName("AutoApplyCookiesButton") is System.Windows.Controls.Button button)
+                button.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
         };
         window.CookieCaptured += (_, captured) =>
         {
@@ -43,6 +62,7 @@ internal static class Program
                 names.Add(captured.Name);
         };
         timeout.Start();
+        monitor.Start();
         window.Show();
         app.Run();
         return exitCode;

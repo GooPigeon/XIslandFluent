@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private bool _isLoadingNextThreadPage;
     private bool _threadHasMore = true;
     private int _highestLoadedThreadPage = 1;
+    private int _currentThreadLastPage = 1;
     private List<Post> _currentThreadPosts = [];
     private readonly List<Post> _allThreadPosts = [];
     private readonly ObservableCollection<Post> _visibleThreadPosts = [];
@@ -62,9 +63,9 @@ public partial class MainWindow : Window
     private static readonly double[] ReferenceLaneXs = [3d, 8d, 13d, 18d, 23d];
     private static readonly double[] ReferenceTargetOffsets = [-8d, -4d, 0d, 4d, 8d];
 
-    private sealed class ReferenceVisual(TextBlock owner, Hyperlink link, int sourceId, int targetId, int colorIndex)
+    private sealed class ReferenceVisual(RichTextBox owner, Hyperlink link, int sourceId, int targetId, int colorIndex)
     {
-        public TextBlock Owner { get; } = owner;
+        public RichTextBox Owner { get; } = owner;
         public Hyperlink Link { get; } = link;
         public int SourceId { get; } = sourceId;
         public int TargetId { get; } = targetId;
@@ -85,6 +86,9 @@ public partial class MainWindow : Window
         _settings.NormalizeCookieSlots();
         _api = new XIslandApiService(_settings);
         InitializeComponent();
+        var workArea = SystemParameters.WorkArea;
+        Width = Math.Max(MinWidth, Math.Round(workArea.Width * 0.6));
+        Height = Math.Max(MinHeight, Math.Round(workArea.Height * 0.6));
         DataContext = this;
         _arrowUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _arrowUpdateTimer.Tick += (_, _) =>
@@ -221,6 +225,7 @@ public partial class MainWindow : Window
                 ReplyItems.ItemsSource = _visibleThreadPosts;
                 PageContextText.Text = $"{thread.ReplyCount} 条回复 · 第 {_page} 页";
                 PageNumberText.Text = $"第 {_page} 页";
+                _currentThreadLastPage = Math.Max(1, (thread.ReplyCount + 19) / 20);
                 _threadHasMore = (thread.Replies?.Count ?? 0) > 0;
             });
         }
@@ -422,6 +427,18 @@ public partial class MainWindow : Window
         await RefreshCurrentAsync();
     }
 
+    private async void FirstPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mode != ViewMode.Thread || _page == 1) return;
+        await OpenThreadAsync(_currentThreadId, 1);
+    }
+
+    private async void LastPage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_mode != ViewMode.Thread || _page == _currentThreadLastPage) return;
+        await OpenThreadAsync(_currentThreadId, _currentThreadLastPage);
+    }
+
     private async void Back_Click(object sender, RoutedEventArgs e)
     {
         if (_mode == ViewMode.Thread)
@@ -452,15 +469,16 @@ public partial class MainWindow : Window
 
     private void PostContent_Loaded(object sender, RoutedEventArgs e)
     {
-        if (sender is not TextBlock { Tag: Post post } textBlock) return;
-        foreach (var stale in _referenceVisuals.Where(x => ReferenceEquals(x.Owner, textBlock)).ToList())
+        if (sender is not RichTextBox { Tag: Post post } richTextBox) return;
+        foreach (var stale in _referenceVisuals.Where(x => ReferenceEquals(x.Owner, richTextBox)).ToList())
             RemoveReferenceVisual(stale);
-        textBlock.Inlines.Clear();
+        var paragraph = new Paragraph { Margin = new Thickness(0), FontSize = 16, LineHeight = 22 };
+        richTextBox.Document = new FlowDocument(paragraph) { PagePadding = new Thickness(0) };
         var content = post.CleanContent;
         var offset = 0;
         foreach (Match match in ReferenceRegex.Matches(content))
         {
-            if (match.Index > offset) textBlock.Inlines.Add(new Run(content[offset..match.Index]));
+            if (match.Index > offset) paragraph.Inlines.Add(new Run(content[offset..match.Index]));
             if (!int.TryParse(match.Groups[1].Value, out var targetId)) continue;
             var link = new Hyperlink(new Run(match.Value))
             {
@@ -475,12 +493,12 @@ public partial class MainWindow : Window
             link.MouseEnter += ReferenceLink_MouseEnter;
             link.MouseLeave += ReferenceLink_MouseLeave;
             link.Tag = targetId;
-            textBlock.Inlines.Add(link);
+            paragraph.Inlines.Add(link);
             var colorIndex = _referenceVisuals.Count % ReferenceColors.Length;
-            _referenceVisuals.Add(new ReferenceVisual(textBlock, link, post.Id, targetId, colorIndex));
+            _referenceVisuals.Add(new ReferenceVisual(richTextBox, link, post.Id, targetId, colorIndex));
             offset = match.Index + match.Length;
         }
-        if (offset < content.Length) textBlock.Inlines.Add(new Run(content[offset..]));
+        if (offset < content.Length) paragraph.Inlines.Add(new Run(content[offset..]));
         ScheduleArrowUpdate();
     }
 
