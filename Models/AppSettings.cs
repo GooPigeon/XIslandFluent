@@ -30,7 +30,7 @@ public sealed class AppSettings
         {
             if (string.IsNullOrWhiteSpace(slot.Id)) slot.Id = Guid.NewGuid().ToString();
             slot.Cookie = slot.Cookie.Trim();
-            slot.Name = CookieName(slot.Cookie);
+            slot.Name = NormalizeCookieDisplayName(slot.Name, slot.Cookie);
         }
         var active = CookieSlots.FirstOrDefault(x => x.Id == ActiveCookieSlotId)
             ?? CookieSlots.FirstOrDefault(x => CookieKey(x.Cookie) == CookieKey(Cookie))
@@ -39,7 +39,7 @@ public sealed class AppSettings
         Cookie = active?.Cookie ?? "";
     }
 
-    public CookieSlot? RememberCookie(string cookie)
+    public CookieSlot? RememberCookie(string cookie, string? name = null, bool activate = true)
     {
         cookie = cookie.Trim();
         if (string.IsNullOrWhiteSpace(cookie)) return null;
@@ -49,29 +49,41 @@ public sealed class AppSettings
         if (existing is not null)
         {
             existing.Cookie = cookie;
-            existing.Name = CookieName(cookie);
+            existing.Name = NormalizeCookieDisplayName(name ?? existing.Name, cookie);
             existing.LastUsedAt = DateTimeOffset.Now;
-            ActiveCookieSlotId = existing.Id;
-            Cookie = existing.Cookie;
+            if (activate)
+            {
+                ActiveCookieSlotId = existing.Id;
+                Cookie = existing.Cookie;
+            }
             return existing;
         }
         if (CookieSlots.Count >= MaxCookieSlots) return null;
-        var slot = CreateCookieSlot(cookie);
+        var slot = CreateCookieSlot(cookie, name);
         CookieSlots.Add(slot);
-        ActiveCookieSlotId = slot.Id;
-        Cookie = slot.Cookie;
+        if (activate)
+        {
+            ActiveCookieSlotId = slot.Id;
+            Cookie = slot.Cookie;
+        }
         return slot;
     }
 
     public static string CookieName(string cookie)
     {
         var value = CookieValue(cookie, "userhash");
-        return string.IsNullOrWhiteSpace(value) ? "未设置" : Uri.UnescapeDataString(value);
+        return IsPublicCookieName(value) ? value! : string.IsNullOrWhiteSpace(value) ? "未设置" : "待同步饼干";
     }
 
-    private static CookieSlot CreateCookieSlot(string cookie) => new()
+    private static string NormalizeCookieDisplayName(string? name, string cookie) =>
+        IsPublicCookieName(name) ? name! : CookieName(cookie);
+
+    private static bool IsPublicCookieName(string? value) =>
+        value is { Length: 7 } && value.All(c => c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9');
+
+    private static CookieSlot CreateCookieSlot(string cookie, string? name = null) => new()
     {
-        Name = CookieName(cookie), Cookie = cookie.Trim(), LastUsedAt = DateTimeOffset.Now
+        Name = NormalizeCookieDisplayName(name, cookie), Cookie = cookie.Trim(), LastUsedAt = DateTimeOffset.Now
     };
 
     private static string CookieKey(string cookie) => CookieValue(cookie, "userhash") ?? cookie.Trim();

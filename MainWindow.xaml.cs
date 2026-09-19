@@ -58,8 +58,8 @@ public partial class MainWindow : Window
         Color.FromRgb(22, 163, 74), Color.FromRgb(37, 99, 235), Color.FromRgb(147, 51, 234),
         Color.FromRgb(234, 88, 12), Color.FromRgb(15, 118, 110), Color.FromRgb(219, 39, 119)
     ];
-    private static readonly double[] ReferenceLaneXs = [4d, 9d, 14d, 19d];
-    private static readonly double[] ReferenceTargetOffsets = [-6d, -2d, 2d, 6d];
+    private static readonly double[] ReferenceLaneXs = [3d, 8d, 13d, 18d, 23d];
+    private static readonly double[] ReferenceTargetOffsets = [-8d, -4d, 0d, 4d, 8d];
 
     private sealed class ReferenceVisual(TextBlock owner, Hyperlink link, int sourceId, int targetId, int colorIndex)
     {
@@ -576,6 +576,7 @@ public partial class MainWindow : Window
         var maxDistance = Math.Max(height * 2.1, 600);
         var topEdgeSlots = new int[ReferenceLaneXs.Length];
         var bottomEdgeSlots = new int[ReferenceLaneXs.Length];
+        var laneSegments = Enumerable.Range(0, ReferenceLaneXs.Length).Select(_ => new List<(double Start, double End)>()).ToArray();
         foreach (var reference in _referenceVisuals)
         {
             var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == reference.TargetId);
@@ -595,22 +596,22 @@ public partial class MainWindow : Window
                     : new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2);
                 var sourcePoint = ownerTransform.Transform(sourceInOwner);
                 var targetTopLeft = targetCard.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(0, 0));
-                var lane = reference.ColorIndex % ReferenceLaneXs.Length;
-                var targetOffset = ReferenceTargetOffsets[lane];
-                var targetY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2) + targetOffset;
-                targetY = Math.Clamp(targetY, targetTopLeft.Y + 10, targetTopLeft.Y + Math.Max(10, targetCard.ActualHeight - 10));
+                var targetBaseY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2);
                 var sourceOnScreen = sourcePoint.Y >= 0 && sourcePoint.Y <= height;
                 var targetOnScreen = targetTopLeft.Y + targetCard.ActualHeight >= 0 && targetTopLeft.Y <= height;
-                var crossesViewport = (sourcePoint.Y < 0 && targetY > height) || (sourcePoint.Y > height && targetY < 0);
-                var shouldShow = crossesViewport || ((sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetY) <= maxDistance);
+                var crossesViewport = (sourcePoint.Y < 0 && targetBaseY > height) || (sourcePoint.Y > height && targetBaseY < 0);
+                var shouldShow = crossesViewport || ((sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetBaseY) <= maxDistance);
                 if (shouldShow)
                 {
+                    var lane = ChooseReferenceLane(reference, sourcePoint.Y, targetBaseY, height, laneSegments);
+                    var targetY = targetBaseY + ReferenceTargetOffsets[lane];
+                    targetY = Math.Clamp(targetY, targetTopLeft.Y + 10, targetTopLeft.Y + Math.Max(10, targetCard.ActualHeight - 10));
                     var edgeSlot = 0;
                     if (!targetOnScreen)
                     {
                         edgeSlot = targetY < 0 ? topEdgeSlots[lane]++ : bottomEdgeSlots[lane]++;
                     }
-                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height, edgeSlot);
+                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height, edgeSlot, lane);
                     SetArrowVisible(reference, true);
                 }
                 else SetArrowVisible(reference, false);
@@ -630,12 +631,35 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height, int edgeSlot)
+    private static int ChooseReferenceLane(ReferenceVisual reference, double sourceY, double targetY, double height, List<(double Start, double End)>[] lanes)
+    {
+        const double clearance = 3d;
+        var start = Math.Clamp(Math.Min(sourceY, targetY), 0, height);
+        var end = Math.Clamp(Math.Max(sourceY, targetY), 0, height);
+        var preferred = reference.ColorIndex % lanes.Length;
+        var order = Enumerable.Range(0, lanes.Length).OrderBy(i => Math.Min(Math.Abs(i - preferred), lanes.Length - Math.Abs(i - preferred)));
+        foreach (var lane in order)
+        {
+            if (lanes[lane].All(x => end + clearance < x.Start || start - clearance > x.End))
+            {
+                lanes[lane].Add((start, end));
+                return lane;
+            }
+        }
+        var leastOverlapLane = Enumerable.Range(0, lanes.Length)
+            .OrderBy(i => lanes[i].Sum(x => Math.Max(0, Math.Min(end, x.End) - Math.Max(start, x.Start) + clearance)))
+            .ThenBy(i => Math.Min(Math.Abs(i - preferred), lanes.Length - Math.Abs(i - preferred)))
+            .First();
+        lanes[leastOverlapLane].Add((start, end));
+        return leastOverlapLane;
+    }
+
+    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height, int edgeSlot, int lane)
     {
         EnsureArrow(reference);
         const double endpointX = 28;
-        const double arrowBaseX = 20;
-        var laneX = ReferenceLaneXs[reference.ColorIndex % ReferenceLaneXs.Length];
+        const double arrowBaseX = 24;
+        var laneX = ReferenceLaneXs[lane];
         var geometry = new PathGeometry();
         PathFigure figure;
         PointCollection arrowPoints;
@@ -1098,9 +1122,11 @@ public partial class MainWindow : Window
         _settings.NormalizeCookieSlots();
         SubscriptionIdBox.Text = _settings.SubscriptionId;
         RefreshCookieSlotPicker(_settings.ActiveCookieSlotId);
+        var activeCookieName = _settings.CookieSlots.FirstOrDefault(x => x.Id == _settings.ActiveCookieSlotId)?.Name
+            ?? AppSettings.CookieName(_settings.Cookie);
         CookieStatusText.Text = string.IsNullOrWhiteSpace(_settings.Cookie)
             ? "尚未获取"
-            : $"当前：{AppSettings.CookieName(_settings.Cookie)} · 共 {_settings.CookieSlots.Count} 个槽位";
+            : $"当前：{activeCookieName} · 共 {_settings.CookieSlots.Count} 个槽位";
         WatermarkCheck.IsChecked = _settings.WatermarkImages;
         ReferenceEffectsCheck.IsChecked = _settings.ReferenceVisualEffects;
         ThemePicker.SelectedIndex = _settings.Theme switch { "Light" => 1, "Dark" => 2, _ => 0 };
@@ -1116,9 +1142,9 @@ public partial class MainWindow : Window
     private void ImportCookie_Click(object sender, RoutedEventArgs e)
     {
         var browser = new BrowserCookieWindow { Owner = this };
-        browser.CookieCaptured += async (_, cookieHeader) =>
+        browser.CookieCaptured += async (_, captured) =>
         {
-            var slot = _settings.RememberCookie(cookieHeader);
+            var slot = _settings.RememberCookie(captured.CookieHeader, captured.Name, captured.Activate);
             if (slot is null)
             {
                 CookieStatusText.Text = $"已达到 {AppSettings.MaxCookieSlots} 个槽位，请先删除一个";
@@ -1127,9 +1153,12 @@ public partial class MainWindow : Window
             _settingsService.Save(_settings);
             _api.UpdateSettings(_settings);
             LoadSettingsIntoControls();
-            CookieStatusText.Text = $"已记录并启用 {slot.Name} · 共 {_settings.CookieSlots.Count} 个槽位";
-            ShowTransientStatus($"已从用户系统记录并启用饼干 {slot.Name}");
-            await RefreshCurrentAsync();
+            if (captured.Activate)
+            {
+                CookieStatusText.Text = $"已记录并启用 {slot.Name} · 共 {_settings.CookieSlots.Count} 个槽位";
+                ShowTransientStatus($"已从用户系统记录并启用饼干 {slot.Name}");
+                await RefreshCurrentAsync();
+            }
         };
         browser.ShowDialog();
     }
@@ -1191,15 +1220,17 @@ public partial class MainWindow : Window
             return;
         }
         ValidateCookieButton.IsEnabled = false;
-        CookieStatusText.Text = $"正在通过值班室校验 {AppSettings.CookieName(_settings.Cookie)}…";
+        var activeName = _settings.CookieSlots.FirstOrDefault(x => x.Id == _settings.ActiveCookieSlotId)?.Name
+            ?? AppSettings.CookieName(_settings.Cookie);
+        CookieStatusText.Text = $"正在通过值班室校验 {activeName}…";
         try
         {
             await _api.ValidateCookieAsync();
-            CookieStatusText.Text = $"✓ {AppSettings.CookieName(_settings.Cookie)} 有效";
+            CookieStatusText.Text = $"✓ {activeName} 有效";
         }
         catch (ApiException ex) when (ex.Message.Contains("饼干") || ex.Message.Contains("登入"))
         {
-            CookieStatusText.Text = $"✕ {AppSettings.CookieName(_settings.Cookie)} 无效或已失效";
+            CookieStatusText.Text = $"✕ {activeName} 无效或已失效";
         }
         catch (Exception ex)
         {
@@ -1218,8 +1249,9 @@ public partial class MainWindow : Window
         }
         var slot = _settings.CookieSlots.FirstOrDefault(x => x.Id == _editingCookieSlotId);
         if (slot is null) return;
-        slot.Cookie = CookieBox.Password.Trim();
-        slot.Name = AppSettings.CookieName(slot.Cookie);
+        var editedCookie = CookieBox.Password.Trim();
+        if (!string.Equals(slot.Cookie, editedCookie, StringComparison.Ordinal)) slot.Name = AppSettings.CookieName(editedCookie);
+        slot.Cookie = editedCookie;
         slot.LastUsedAt = DateTimeOffset.Now;
         if (_settings.ActiveCookieSlotId == slot.Id) _settings.Cookie = slot.Cookie;
     }

@@ -73,12 +73,12 @@ internal static class Program
                     .Select(x => ((PathGeometry)x.First().Data).Figures[0].Segments.OfType<LineSegment>().First().Point.X)
                     .ToList();
                 var orderedLanes = laneByColor.Distinct().OrderBy(x => x).ToList();
-                if (orderedLanes.Count > 4)
-                    throw new InvalidOperationException("引用箭头使用了超过四条紧凑轨道");
-                if (orderedLanes.Count > 1 && orderedLanes[^1] - orderedLanes[0] > 15.1)
+                if (orderedLanes.Count > 5)
+                    throw new InvalidOperationException("引用箭头使用了超过五条紧凑轨道");
+                if (orderedLanes.Count > 1 && orderedLanes[^1] - orderedLanes[0] > 20.1)
                     throw new InvalidOperationException("引用轨道超出预留区域");
-                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 4.5 || x > 5.5))
-                    throw new InvalidOperationException("紧凑引用轨道间距不正确");
+                if (orderedLanes.Any(x => Math.Abs((x - 3) / 5 - Math.Round((x - 3) / 5)) > 0.01))
+                    throw new InvalidOperationException("引用箭头没有落在紧凑轨道上");
 
                 var poPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.IsPo);
                 var poContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(poPost) ?? throw new InvalidOperationException("PO 容器缺失"));
@@ -249,6 +249,15 @@ internal static class Program
         settings.RememberCookie("userhash=Slot005");
         if (settings.RememberCookie("userhash=Slot006") is not null || settings.CookieSlots.Count != XIslandFluent.Models.AppSettings.MaxCookieSlots)
             throw new InvalidOperationException("饼干槽位上限不正确");
+        var encoded = new XIslandFluent.Models.AppSettings();
+        encoded.RememberCookie("userhash=%A4Oz%F7*g%FB%80%F8Ad%B7@%EBI%8C()%F5", "BzKMePb");
+        encoded.NormalizeCookieSlots();
+        if (encoded.CookieSlots.Single().Name != "BzKMePb")
+            throw new InvalidOperationException("用户系统导出的饼干名称没有保留");
+        var unsynced = new XIslandFluent.Models.AppSettings();
+        unsynced.RememberCookie("userhash=%A4Oz%F7*g%FB%80%F8Ad%B7@%EBI%8C()%F5");
+        if (unsynced.CookieSlots.Single().Name != "待同步饼干")
+            throw new InvalidOperationException("编码凭据被错误地当作饼干名称");
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
