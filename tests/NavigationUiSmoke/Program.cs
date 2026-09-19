@@ -63,10 +63,12 @@ internal static class Program
                     .Select(x => ((PathGeometry)x.First().Data).Figures[0].Segments.OfType<LineSegment>().First().Point.X)
                     .ToList();
                 var orderedLanes = laneByColor.Distinct().OrderBy(x => x).ToList();
-                if (orderedLanes.Count > 2)
-                    throw new InvalidOperationException("引用箭头使用了超过两条轨道");
-                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 4 || x > 8))
-                    throw new InvalidOperationException("不同引用竖线间距不足");
+                if (orderedLanes.Count > 4)
+                    throw new InvalidOperationException("引用箭头使用了超过四条紧凑轨道");
+                if (orderedLanes.Count > 1 && orderedLanes[^1] - orderedLanes[0] > 6.1)
+                    throw new InvalidOperationException("紧凑引用轨道增加了左侧占用宽度");
+                if (orderedLanes.Zip(orderedLanes.Skip(1), (a, b) => b - a).Any(x => x < 1.5 || x > 3))
+                    throw new InvalidOperationException("紧凑引用轨道间距不正确");
 
                 var poPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.IsPo);
                 var poContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(poPost) ?? throw new InvalidOperationException("PO 容器缺失"));
@@ -127,6 +129,9 @@ internal static class Program
                 var targetPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.Id == targetId);
                 var targetContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(targetPost) ?? throw new InvalidOperationException("引用目标容器缺失"));
                 var targetCard = Descendants<Border>(targetContainer).First(x => x.Tag is int id && id == targetId);
+                var replyTemplateRoot = Descendants<StackPanel>(targetContainer).First(x => x.Margin.Left > 0);
+                if (Math.Abs(replyTemplateRoot.Margin.Left - replyTemplateRoot.Margin.Right) > 0.01)
+                    throw new InvalidOperationException("串内卡片左右留白不对称");
                 var targetTop = targetCard.TransformToVisual(arrowCanvas).Transform(new Point(0, 0)).Y;
                 double? crossOffset = null;
                 if (sourceY > targetTop + targetCard.ActualHeight + replyScroll.ViewportHeight + 4)

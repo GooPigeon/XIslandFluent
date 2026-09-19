@@ -56,6 +56,8 @@ public partial class MainWindow : Window
         Color.FromRgb(22, 163, 74), Color.FromRgb(37, 99, 235), Color.FromRgb(147, 51, 234),
         Color.FromRgb(234, 88, 12), Color.FromRgb(15, 118, 110), Color.FromRgb(219, 39, 119)
     ];
+    private static readonly double[] ReferenceLaneXs = [6d, 8d, 10d, 12d];
+    private static readonly double[] ReferenceTargetOffsets = [-6d, -2d, 2d, 6d];
 
     private sealed class ReferenceVisual(TextBlock owner, Hyperlink link, int sourceId, int targetId, int colorIndex)
     {
@@ -569,6 +571,8 @@ public partial class MainWindow : Window
 
         var height = ReferenceArrowCanvas.ActualHeight;
         var maxDistance = Math.Max(height * 2.1, 600);
+        var topEdgeSlots = new int[ReferenceLaneXs.Length];
+        var bottomEdgeSlots = new int[ReferenceLaneXs.Length];
         foreach (var reference in _referenceVisuals)
         {
             var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == reference.TargetId);
@@ -588,7 +592,8 @@ public partial class MainWindow : Window
                     : new Point(sourceRect.Left, sourceRect.Top + sourceRect.Height / 2);
                 var sourcePoint = ownerTransform.Transform(sourceInOwner);
                 var targetTopLeft = targetCard.TransformToVisual(ReferenceArrowCanvas).Transform(new Point(0, 0));
-                var targetOffset = reference.ColorIndex % 2 == 0 ? -4d : 4d;
+                var lane = reference.ColorIndex % ReferenceLaneXs.Length;
+                var targetOffset = ReferenceTargetOffsets[lane];
                 var targetY = targetTopLeft.Y + Math.Min(28, targetCard.ActualHeight / 2) + targetOffset;
                 targetY = Math.Clamp(targetY, targetTopLeft.Y + 10, targetTopLeft.Y + Math.Max(10, targetCard.ActualHeight - 10));
                 var sourceOnScreen = sourcePoint.Y >= 0 && sourcePoint.Y <= height;
@@ -597,7 +602,12 @@ public partial class MainWindow : Window
                 var shouldShow = crossesViewport || ((sourceOnScreen || targetOnScreen) && Math.Abs(sourcePoint.Y - targetY) <= maxDistance);
                 if (shouldShow)
                 {
-                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height);
+                    var edgeSlot = 0;
+                    if (!targetOnScreen)
+                    {
+                        edgeSlot = targetY < 0 ? topEdgeSlots[lane]++ : bottomEdgeSlots[lane]++;
+                    }
+                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height, edgeSlot);
                     SetArrowVisible(reference, true);
                 }
                 else SetArrowVisible(reference, false);
@@ -617,12 +627,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height)
+    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height, int edgeSlot)
     {
         EnsureArrow(reference);
         const double endpointX = 24;
         const double arrowBaseX = 16;
-        var laneX = reference.ColorIndex % 2 == 0 ? 6d : 12d;
+        var laneX = ReferenceLaneXs[reference.ColorIndex % ReferenceLaneXs.Length];
         var geometry = new PathGeometry();
         PathFigure figure;
         PointCollection arrowPoints;
@@ -643,7 +653,8 @@ public partial class MainWindow : Window
         }
         else if (sourceOnScreen)
         {
-            var edgeY = targetY < 0 ? 1d : height - 1;
+            var edgeInset = edgeSlot * 7d;
+            var edgeY = targetY < 0 ? 1d + edgeInset : height - 1 - edgeInset;
             var direction = targetY < 0 ? -1d : 1d;
             var arrowBaseY = edgeY - direction * 8;
             var radius = Math.Min(10, Math.Abs(sourceY - arrowBaseY) / 2);
@@ -667,7 +678,8 @@ public partial class MainWindow : Window
         else
         {
             var sourceEdgeY = sourceY < 0 ? 1d : height - 1;
-            var targetEdgeY = targetY < 0 ? 1d : height - 1;
+            var edgeInset = edgeSlot * 7d;
+            var targetEdgeY = targetY < 0 ? 1d + edgeInset : height - 1 - edgeInset;
             var direction = targetY < 0 ? -1d : 1d;
             var arrowBaseY = targetEdgeY - direction * 8;
             figure = new PathFigure { StartPoint = new Point(laneX, sourceEdgeY), IsClosed = false };
