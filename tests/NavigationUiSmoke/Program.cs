@@ -67,18 +67,29 @@ internal static class Program
                 var referenceVisual = FindRenderedReferenceVisual(window);
                 localReference = referenceVisual.GetType().GetProperty("Link")?.GetValue(referenceVisual) as Hyperlink
                     ?? throw new InvalidOperationException("已渲染引用缺少链接");
-                var laneByColor = arrowCanvas.Children.OfType<System.Windows.Shapes.Path>()
+                var visiblePaths = arrowCanvas.Children.OfType<System.Windows.Shapes.Path>()
                     .Where(x => x.Visibility == Visibility.Visible && x.Stroke is SolidColorBrush)
-                    .GroupBy(x => ((SolidColorBrush)x.Stroke).Color)
-                    .Select(x => ((PathGeometry)x.First().Data).Figures[0].Segments.OfType<LineSegment>().First().Point.X)
                     .ToList();
-                var orderedLanes = laneByColor.Distinct().OrderBy(x => x).ToList();
+                var orderedLanes = visiblePaths
+                    .Select(x => ((PathGeometry)x.Data).Figures[0].Segments.OfType<LineSegment>().First().Point.X)
+                    .Distinct().OrderBy(x => x).ToList();
                 if (orderedLanes.Count > 5)
                     throw new InvalidOperationException("引用箭头使用了超过五条紧凑轨道");
                 if (orderedLanes.Count > 1 && orderedLanes[^1] - orderedLanes[0] > 20.1)
                     throw new InvalidOperationException("引用轨道超出预留区域");
                 if (orderedLanes.Any(x => Math.Abs((x - 3) / 5 - Math.Round((x - 3) / 5)) > 0.01))
                     throw new InvalidOperationException("引用箭头没有落在紧凑轨道上");
+                for (var i = 0; i < visiblePaths.Count; i++)
+                for (var j = i + 1; j < visiblePaths.Count; j++)
+                {
+                    var first = ((PathGeometry)visiblePaths[i].Data).Bounds;
+                    var second = ((PathGeometry)visiblePaths[j].Data).Bounds;
+                    var verticalOverlap = Math.Min(first.Bottom, second.Bottom) - Math.Max(first.Top, second.Top);
+                    var firstColor = ((SolidColorBrush)visiblePaths[i].Stroke).Color;
+                    var secondColor = ((SolidColorBrush)visiblePaths[j].Stroke).Color;
+                    if (verticalOverlap > 6 && firstColor == secondColor)
+                        throw new InvalidOperationException("同一屏幕区间内的引用箭头出现重复颜色");
+                }
 
                 var poPost = replies.Items.Cast<XIslandFluent.Models.Post>().First(x => x.IsPo);
                 var poContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(poPost) ?? throw new InvalidOperationException("PO 容器缺失"));
@@ -236,9 +247,9 @@ internal static class Program
     {
         var settings = new XIslandFluent.Models.AppSettings { Cookie = "userhash=BzKMePb" };
         settings.NormalizeCookieSlots();
-        if (settings.CookieSlots.Count != 1 || settings.CookieSlots[0].Name != "BzKMePb")
-            throw new InvalidOperationException("旧版饼干没有按系统名称迁移到槽位");
-        settings.RememberCookie("userhash=BzKMePb");
+        if (settings.CookieSlots.Count != 1 || settings.CookieSlots[0].Name != "待同步饼干")
+            throw new InvalidOperationException("旧版私密凭据被错误地显示为饼干名称");
+        settings.RememberCookie("userhash=BzKMePb", "BzKMePb");
         if (settings.CookieSlots.Count != 1)
             throw new InvalidOperationException("相同饼干被重复记录");
         settings.RememberCookie("userhash=AbCd123");
@@ -247,8 +258,9 @@ internal static class Program
         settings.RememberCookie("userhash=Slot003");
         settings.RememberCookie("userhash=Slot004");
         settings.RememberCookie("userhash=Slot005");
-        if (settings.RememberCookie("userhash=Slot006") is not null || settings.CookieSlots.Count != XIslandFluent.Models.AppSettings.MaxCookieSlots)
-            throw new InvalidOperationException("饼干槽位上限不正确");
+        settings.RememberCookie("userhash=Slot006");
+        if (settings.CookieSlots.Count != 6)
+            throw new InvalidOperationException("自动获取的不同饼干没有全部保留");
         var encoded = new XIslandFluent.Models.AppSettings();
         encoded.RememberCookie("userhash=%A4Oz%F7*g%FB%80%F8Ad%B7@%EBI%8C()%F5", "BzKMePb");
         encoded.NormalizeCookieSlots();

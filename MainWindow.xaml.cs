@@ -58,6 +58,7 @@ public partial class MainWindow : Window
         Color.FromRgb(22, 163, 74), Color.FromRgb(37, 99, 235), Color.FromRgb(147, 51, 234),
         Color.FromRgb(234, 88, 12), Color.FromRgb(15, 118, 110), Color.FromRgb(219, 39, 119)
     ];
+    private static readonly SolidColorBrush[] ReferenceBrushes = ReferenceColors.Select(CreateReferenceBrush).ToArray();
     private static readonly double[] ReferenceLaneXs = [3d, 8d, 13d, 18d, 23d];
     private static readonly double[] ReferenceTargetOffsets = [-8d, -4d, 0d, 4d, 8d];
 
@@ -577,6 +578,7 @@ public partial class MainWindow : Window
         var topEdgeSlots = new int[ReferenceLaneXs.Length];
         var bottomEdgeSlots = new int[ReferenceLaneXs.Length];
         var laneSegments = Enumerable.Range(0, ReferenceLaneXs.Length).Select(_ => new List<(double Start, double End)>()).ToArray();
+        var colorSegments = Enumerable.Range(0, ReferenceColors.Length).Select(_ => new List<(double Start, double End)>()).ToArray();
         foreach (var reference in _referenceVisuals)
         {
             var target = _visibleThreadPosts.FirstOrDefault(x => x.Id == reference.TargetId);
@@ -604,6 +606,7 @@ public partial class MainWindow : Window
                 if (shouldShow)
                 {
                     var lane = ChooseReferenceLane(reference, sourcePoint.Y, targetBaseY, height, laneSegments);
+                    var color = ChooseReferenceColor(reference, sourcePoint.Y, targetBaseY, height, colorSegments);
                     var targetY = targetBaseY + ReferenceTargetOffsets[lane];
                     targetY = Math.Clamp(targetY, targetTopLeft.Y + 10, targetTopLeft.Y + Math.Max(10, targetCard.ActualHeight - 10));
                     var edgeSlot = 0;
@@ -611,7 +614,7 @@ public partial class MainWindow : Window
                     {
                         edgeSlot = targetY < 0 ? topEdgeSlots[lane]++ : bottomEdgeSlots[lane]++;
                     }
-                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height, edgeSlot, lane);
+                    UpdateArrowGeometry(reference, sourcePoint.Y, targetY, sourceOnScreen, targetOnScreen, height, edgeSlot, lane, color);
                     SetArrowVisible(reference, true);
                 }
                 else SetArrowVisible(reference, false);
@@ -654,9 +657,35 @@ public partial class MainWindow : Window
         return leastOverlapLane;
     }
 
-    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height, int edgeSlot, int lane)
+    private static int ChooseReferenceColor(ReferenceVisual reference, double sourceY, double targetY, double height, List<(double Start, double End)>[] colors)
+    {
+        const double clearance = 3d;
+        var start = Math.Clamp(Math.Min(sourceY, targetY), 0, height);
+        var end = Math.Clamp(Math.Max(sourceY, targetY), 0, height);
+        var preferred = reference.ColorIndex % colors.Length;
+        var order = Enumerable.Range(0, colors.Length).OrderBy(i => Math.Min(Math.Abs(i - preferred), colors.Length - Math.Abs(i - preferred)));
+        foreach (var color in order)
+        {
+            if (colors[color].All(x => end + clearance < x.Start || start - clearance > x.End))
+            {
+                colors[color].Add((start, end));
+                return color;
+            }
+        }
+        var leastOverlapColor = Enumerable.Range(0, colors.Length)
+            .OrderBy(i => colors[i].Sum(x => Math.Max(0, Math.Min(end, x.End) - Math.Max(start, x.Start) + clearance)))
+            .ThenBy(i => Math.Min(Math.Abs(i - preferred), colors.Length - Math.Abs(i - preferred)))
+            .First();
+        colors[leastOverlapColor].Add((start, end));
+        return leastOverlapColor;
+    }
+
+    private void UpdateArrowGeometry(ReferenceVisual reference, double sourceY, double targetY, bool sourceOnScreen, bool targetOnScreen, double height, int edgeSlot, int lane, int colorIndex)
     {
         EnsureArrow(reference);
+        var brush = ReferenceBrushes[colorIndex];
+        reference.Path!.Stroke = brush;
+        reference.ArrowHead!.Fill = brush;
         const double endpointX = 28;
         const double arrowBaseX = 24;
         var laneX = ReferenceLaneXs[lane];
@@ -727,7 +756,7 @@ public partial class MainWindow : Window
     private void EnsureArrow(ReferenceVisual reference)
     {
         if (reference.Path is not null) return;
-        var brush = new SolidColorBrush(ReferenceColors[reference.ColorIndex]);
+        var brush = ReferenceBrushes[reference.ColorIndex];
         reference.Path = new System.Windows.Shapes.Path
         {
             Stroke = brush, StrokeThickness = 3, StrokeStartLineCap = PenLineCap.Round,
@@ -739,6 +768,13 @@ public partial class MainWindow : Window
         Panel.SetZIndex(reference.ArrowHead, 2);
         ReferenceArrowCanvas.Children.Add(reference.Path);
         ReferenceArrowCanvas.Children.Add(reference.ArrowHead);
+    }
+
+    private static SolidColorBrush CreateReferenceBrush(Color color)
+    {
+        var brush = new SolidColorBrush(color);
+        brush.Freeze();
+        return brush;
     }
 
     private void SetArrowVisible(ReferenceVisual reference, bool visible)
@@ -1145,11 +1181,7 @@ public partial class MainWindow : Window
         browser.CookieCaptured += async (_, captured) =>
         {
             var slot = _settings.RememberCookie(captured.CookieHeader, captured.Name, captured.Activate);
-            if (slot is null)
-            {
-                CookieStatusText.Text = $"已达到 {AppSettings.MaxCookieSlots} 个槽位，请先删除一个";
-                return;
-            }
+            if (slot is null) return;
             _settingsService.Save(_settings);
             _api.UpdateSettings(_settings);
             LoadSettingsIntoControls();
@@ -1178,11 +1210,6 @@ public partial class MainWindow : Window
     private void AddCookieSlot_Click(object sender, RoutedEventArgs e)
     {
         SaveCookieEditorToSlot();
-        if (_settings.CookieSlots.Count >= AppSettings.MaxCookieSlots)
-        {
-            CookieStatusText.Text = $"最多保存 {AppSettings.MaxCookieSlots} 个饼干槽位";
-            return;
-        }
         var slot = new CookieSlot();
         _settings.CookieSlots.Add(slot);
         ActivateCookieSlot(slot);

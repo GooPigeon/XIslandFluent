@@ -24,6 +24,7 @@ public sealed class SettingsService
             {
                 var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions) ?? new();
                 settings.NormalizeCookieSlots();
+                File.WriteAllText(_path, JsonSerializer.Serialize(settings, JsonOptions));
                 return settings;
             }
         }
