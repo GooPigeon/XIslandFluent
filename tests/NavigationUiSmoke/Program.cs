@@ -65,6 +65,24 @@ internal static class Program
                 var firstPageCount = replies.Items.Count;
                 window.UpdateLayout();
                 await Task.Delay(250);
+                var imagePost = replies.Items.Cast<XIslandFluent.Models.Post>().FirstOrDefault(x => x.HasImage);
+                if (imagePost is not null)
+                {
+                    var imageContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(imagePost)
+                        ?? throw new InvalidOperationException("图片回复容器缺失"));
+                    var postImage = Descendants<Image>(imageContainer).FirstOrDefault(x => ReferenceEquals(x.Tag, imagePost))
+                        ?? throw new InvalidOperationException("图片回复没有生成图片控件");
+                    for (var i = 0; i < 50 && postImage.Source is null; i++) await Task.Delay(100);
+                    window.UpdateLayout();
+                    if (postImage.Source is null || postImage.ActualWidth <= 0 || postImage.ActualHeight <= 0)
+                        throw new InvalidOperationException("串内图片加载后没有可见尺寸");
+                    var sizeButton = Descendants<Button>(imageContainer).FirstOrDefault(x => x.Content?.ToString() == "缩小图片");
+                    if (imagePost.CanShrinkImage && sizeButton is null)
+                        throw new InvalidOperationException("大图没有显示缩小图片按钮");
+                }
+                await Task.Delay(800);
+                if (replies.Items.Count != firstPageCount)
+                    throw new InvalidOperationException("进入长串后在用户未滚动时自动连续加载了后续页面");
                 var searchButton = (Button)(window.FindName("SearchButton") ?? throw new InvalidOperationException("SearchButton not found"));
                 var searchLabel = Descendants<TextBlock>(searchButton).First(x => x.Text == "搜索全岛");
                 if (searchLabel.Foreground is not SolidColorBrush searchBrush || searchBrush.Color != Colors.White)

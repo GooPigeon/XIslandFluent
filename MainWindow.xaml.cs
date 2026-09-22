@@ -464,6 +464,9 @@ public partial class MainWindow : Window
     private async void ReplyScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
     {
         ScheduleArrowUpdate();
+        // Layout changes (especially images finishing download) also raise ScrollChanged.
+        // Only a real downward scroll by the user may request another page.
+        if (e.VerticalChange <= 0) return;
         if (e.ExtentHeight <= 0 || e.ViewportHeight <= 0) return;
         if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - Math.Max(90, e.ViewportHeight * 0.12))
             await LoadNextThreadPageAsync();
