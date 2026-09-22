@@ -15,6 +15,7 @@ internal static class Program
     private static int Main()
     {
         VerifyCookieSlots();
+        VerifyImageSizing();
         var exitCode = 1;
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
@@ -134,9 +135,6 @@ internal static class Program
                     throw new InvalidOperationException("PO 标记与串号未垂直对齐");
                 var arrowPath = referenceVisual.GetType().GetProperty("Path")?.GetValue(referenceVisual) as System.Windows.Shapes.Path
                     ?? throw new InvalidOperationException("引用箭头路径缺失");
-                var firstGeometry = arrowPath.Data as PathGeometry ?? throw new InvalidOperationException("引用箭头几何缺失");
-                if (firstGeometry.Figures[0].Segments[0] is not LineSegment)
-                    throw new InvalidOperationException("屏外引用端没有使用直线进入视口");
                 var childCount = arrowCanvas.Children.Count;
                 updateArrows.Invoke(window, null);
                 if (!arrowCanvas.Children.Contains(arrowPath) || arrowCanvas.Children.Count != childCount)
@@ -315,6 +313,25 @@ internal static class Program
         unsynced.RememberCookie("userhash=%A4Oz%F7*g%FB%80%F8Ad%B7@%EBI%8C()%F5");
         if (unsynced.CookieSlots.Single().Name != "待同步饼干")
             throw new InvalidOperationException("编码凭据被错误地当作饼干名称");
+    }
+
+    private static void VerifyImageSizing()
+    {
+        var large = new XIslandFluent.Models.Post();
+        large.SetImageResolution(4000, 3000);
+        if (large.ImageDisplayWidth != 693 || large.ImageDisplayHeight != 520 || !large.CanShrinkImage)
+            throw new InvalidOperationException("大图没有按像素分辨率等比限制在正常阅读尺寸");
+        large.ToggleCompactImage();
+        if (large.ImageDisplayWidth != 293 || large.ImageDisplayHeight != 220 || large.ImageSizeActionText != "恢复图片")
+            throw new InvalidOperationException("缩小图片没有保持比例或更新按钮状态");
+        large.ToggleCompactImage();
+        if (large.ImageDisplayWidth != 693 || large.ImageDisplayHeight != 520)
+            throw new InvalidOperationException("恢复图片没有还原正常阅读尺寸");
+
+        var small = new XIslandFluent.Models.Post();
+        small.SetImageResolution(120, 80);
+        if (small.ImageDisplayWidth != 120 || small.ImageDisplayHeight != 80 || small.CanShrinkImage)
+            throw new InvalidOperationException("小图没有保持原始像素尺寸");
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject

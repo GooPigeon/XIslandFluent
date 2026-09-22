@@ -6,10 +6,12 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -850,12 +852,14 @@ public partial class MainWindow : Window
         }
         else
         {
+            var highlight = reference.Highlight;
             var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(120));
             fade.Completed += (_, _) =>
             {
-                if (!reference.HighlightVisible) reference.Highlight.Visibility = Visibility.Collapsed;
+                if (!reference.HighlightVisible && ReferenceEquals(reference.Highlight, highlight))
+                    highlight.Visibility = Visibility.Collapsed;
             };
-            reference.Highlight.BeginAnimation(OpacityProperty, fade);
+            highlight.BeginAnimation(OpacityProperty, fade);
         }
     }
 
@@ -1036,6 +1040,21 @@ public partial class MainWindow : Window
             await File.WriteAllBytesAsync(picker.FileName, bytes);
             ShowTransientStatus($"图片已保存到 {picker.FileName}");
         });
+    }
+
+    private void ToggleImageSize_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: Post post }) post.ToggleCompactImage();
+    }
+
+    private void PostImage_Loaded(object sender, RoutedEventArgs e) => UpdatePostImageResolution(sender);
+
+    private void PostImage_TargetUpdated(object sender, DataTransferEventArgs e) => UpdatePostImageResolution(sender);
+
+    private static void UpdatePostImageResolution(object sender)
+    {
+        if (sender is Image { Tag: Post post, Source: BitmapSource bitmap } && bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0)
+            post.SetImageResolution(bitmap.PixelWidth, bitmap.PixelHeight);
     }
 
     private async void Image_Click(object sender, MouseButtonEventArgs e)

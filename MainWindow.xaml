@@ -64,6 +64,9 @@
                         <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="保存图片" Tag="{Binding}" Click="SaveImage_Click" Margin="6,0,0,0"
                                 VerticalAlignment="Center" Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="{Binding ImageSizeActionText}" IsEnabled="{Binding CanShrinkImage}"
+                                ToolTip="{Binding ImageResolutionText}" Tag="{Binding}" Click="ToggleImageSize_Click" Margin="6,0,0,0"
+                                VerticalAlignment="Center" Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     </DockPanel>
@@ -72,14 +75,15 @@
                                  VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" Cursor="IBeam">
                         <FlowDocument PagePadding="0"><Paragraph Margin="0" LineHeight="22"/></FlowDocument>
                     </RichTextBox>
-                    <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
+                    <Border Margin="0,12,0,0" Width="{Binding ImageDisplayWidth}" Height="{Binding ImageDisplayHeight}" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
-                        <Grid MinWidth="180" MinHeight="100" Background="{DynamicResource LayerBrush}">
+                        <Grid Background="{DynamicResource LayerBrush}">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource SubtleTextBrush}" FontSize="24" HorizontalAlignment="Center"/>
                                 <TextBlock Text="图片加载中" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,6,0,0"/>
                             </StackPanel>
-                            <Image Source="{Binding ImageUrl, IsAsync=True}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
+                            <Image Source="{Binding ImageUrl, IsAsync=True, NotifyOnTargetUpdated=True}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand"
+                                   Loaded="PostImage_Loaded" TargetUpdated="PostImage_TargetUpdated" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
                         </Grid>
                     </Border>
                 </StackPanel>
