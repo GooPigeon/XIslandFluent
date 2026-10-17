@@ -6,12 +6,10 @@ using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -27,6 +25,7 @@ public partial class MainWindow : Window
     private readonly OfflineCacheService _offlineCache = new();
     private readonly ObservableCollection<ForumCategory> _forumCategories = [];
     private readonly ObservableCollection<TimelineInfo> _timelines = [];
+    private readonly ObservableCollection<Post> _visibleListPosts = [];
     private AppSettings _settings;
     private XIslandApiService _api;
     private ViewMode _mode = ViewMode.Timeline;
@@ -41,6 +40,9 @@ public partial class MainWindow : Window
     private bool _replyInProgress;
     private bool _suppressPoFilter;
     private bool _isLoadingNextThreadPage;
+    private bool _isLoadingNextListPage;
+    private bool _listHasMore = true;
+    private int _highestLoadedListPage = 1;
     private bool _threadHasMore = true;
     private int _highestLoadedThreadPage = 1;
     private int _currentThreadLastPage = 1;
@@ -178,10 +180,56 @@ public partial class MainWindow : Window
         {
             var posts = await loader();
             PrepareImages(posts);
-            ThreadItems.ItemsSource = posts;
+            _visibleListPosts.Clear();
+            foreach (var post in posts)
+            {
+                post.ShowPageDivider = false;
+                post.PageDividerText = "";
+                _visibleListPosts.Add(post);
+            }
+            ThreadItems.ItemsSource = _visibleListPosts;
+            _highestLoadedListPage = _page;
+            _listHasMore = posts.Count > 0;
             PageNumberText.Text = $"第 {_page} 页";
             if (posts.Count == 0) ShowTransientStatus("这一页暂时没有内容");
         });
+    }
+
+    private async Task LoadNextBoardPageAsync()
+    {
+        if (_mode != ViewMode.Board || _selectedForum is null || _isLoadingNextListPage || !_listHasMore) return;
+        _isLoadingNextListPage = true;
+        ListNextPageLoading.Visibility = Visibility.Visible;
+        try
+        {
+            var nextPage = _highestLoadedListPage + 1;
+            var posts = await _api.GetBoardAsync(_currentForumId, nextPage);
+            var existingIds = _visibleListPosts.Select(x => x.Id).ToHashSet();
+            var additions = posts.Where(x => existingIds.Add(x.Id)).ToList();
+            if (additions.Count == 0)
+            {
+                _listHasMore = false;
+                return;
+            }
+
+            PrepareImages(additions);
+            additions[0].ShowPageDivider = true;
+            additions[0].PageDividerText = $"第 {nextPage} 页";
+            foreach (var post in additions) _visibleListPosts.Add(post);
+            _highestLoadedListPage = nextPage;
+            _listHasMore = posts.Count > 0;
+            PageContextText.Text = $"{_selectedForum.Name} · 已加载至第 {nextPage} 页";
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsLog.Write($"Load next board page failed forum={_currentForumId}", ex);
+            ShowTransientStatus($"下一页加载失败：{ex.Message}");
+        }
+        finally
+        {
+            ListNextPageLoading.Visibility = Visibility.Collapsed;
+            _isLoadingNextListPage = false;
+        }
     }
 
     private async Task OpenThreadAsync(int threadId, int page = 1)
@@ -470,6 +518,13 @@ public partial class MainWindow : Window
         if (e.ExtentHeight <= 0 || e.ViewportHeight <= 0) return;
         if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - Math.Max(90, e.ViewportHeight * 0.12))
             await LoadNextThreadPageAsync();
+    }
+
+    private async void ThreadListScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.VerticalChange <= 0 || e.ExtentHeight <= 0 || e.ViewportHeight <= 0) return;
+        if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - Math.Max(90, e.ViewportHeight * 0.12))
+            await LoadNextBoardPageAsync();
     }
 
     private void PostContent_Loaded(object sender, RoutedEventArgs e)
@@ -1045,21 +1100,6 @@ public partial class MainWindow : Window
         });
     }
 
-    private void ToggleImageSize_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: Post post }) post.ToggleCompactImage();
-    }
-
-    private void PostImage_Loaded(object sender, RoutedEventArgs e) => UpdatePostImageResolution(sender);
-
-    private void PostImage_TargetUpdated(object sender, DataTransferEventArgs e) => UpdatePostImageResolution(sender);
-
-    private static void UpdatePostImageResolution(object sender)
-    {
-        if (sender is Image { Tag: Post post, Source: BitmapSource bitmap } && bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0)
-            post.SetImageResolution(bitmap.PixelWidth, bitmap.PixelHeight);
-    }
-
     private async void Image_Click(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
@@ -1397,3 +1437,4 @@ public partial class MainWindow : Window
 
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 }
+

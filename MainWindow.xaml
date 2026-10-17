@@ -8,6 +8,13 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolVisibility"/>
         <DataTemplate x:Key="ThreadCardTemplate" DataType="{x:Type models:Post}">
+            <StackPanel>
+                <Grid Margin="0,5,0,9" Visibility="{Binding ShowPageDivider, Converter={StaticResource BoolVisibility}}">
+                    <Border Height="1" Background="{DynamicResource StrokeBrush}" VerticalAlignment="Center"/>
+                    <Border Background="{DynamicResource SurfaceBrush}" Padding="10,2" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding PageDividerText}" Foreground="{DynamicResource SubtleTextBrush}" FontSize="11"/>
+                    </Border>
+                </Grid>
             <Border Style="{StaticResource CardStyle}" Cursor="Hand" MouseLeftButtonUp="ThreadCard_Click" Tag="{Binding Id}">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -38,6 +45,7 @@
                     </Border>
                 </Grid>
             </Border>
+            </StackPanel>
         </DataTemplate>
         <DataTemplate x:Key="ReplyCardTemplate" DataType="{x:Type models:Post}">
             <StackPanel Margin="28,0,28,0">
@@ -64,9 +72,6 @@
                         <TextBlock Text="{Binding Time}" Foreground="{DynamicResource SubtleTextBrush}" Margin="12,0,0,0" FontSize="12" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="保存图片" Tag="{Binding}" Click="SaveImage_Click" Margin="6,0,0,0"
                                 VerticalAlignment="Center" Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
-                        <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="{Binding ImageSizeActionText}" IsEnabled="{Binding CanShrinkImage}"
-                                ToolTip="{Binding ImageResolutionText}" Tag="{Binding}" Click="ToggleImageSize_Click" Margin="6,0,0,0"
-                                VerticalAlignment="Center" Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="引用" Tag="{Binding}" Click="Quote_Click" VerticalAlignment="Center"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource FluentButton}" Padding="9,3" MinHeight="26" Content="查看引用" Tag="{Binding Id}" Click="Reference_Click" Margin="0,0,6,0" VerticalAlignment="Center"/>
                     </DockPanel>
@@ -75,15 +80,14 @@
                                  VerticalScrollBarVisibility="Disabled" HorizontalScrollBarVisibility="Disabled" Cursor="IBeam">
                         <FlowDocument PagePadding="0"><Paragraph Margin="0" LineHeight="22"/></FlowDocument>
                     </RichTextBox>
-                    <Border Margin="0,12,0,0" Width="{Binding ImageDisplayWidth}" Height="{Binding ImageDisplayHeight}" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
+                    <Border Margin="0,12,0,0" MaxWidth="720" MaxHeight="520" HorizontalAlignment="Left" CornerRadius="6" ClipToBounds="True"
                             Visibility="{Binding HasImage, Converter={StaticResource BoolVisibility}}">
-                        <Grid Background="{DynamicResource LayerBrush}">
+                        <Grid MinWidth="180" MinHeight="100" Background="{DynamicResource LayerBrush}">
                             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource SubtleTextBrush}" FontSize="24" HorizontalAlignment="Center"/>
                                 <TextBlock Text="图片加载中" Foreground="{DynamicResource SubtleTextBrush}" FontSize="12" Margin="0,6,0,0"/>
                             </StackPanel>
-                            <Image Source="{Binding ImageUrl, IsAsync=True, NotifyOnTargetUpdated=True}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand"
-                                   Loaded="PostImage_Loaded" TargetUpdated="PostImage_TargetUpdated" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
+                            <Image Source="{Binding ImageUrl, IsAsync=True}" Stretch="Uniform" Tag="{Binding}" Cursor="Hand" MouseLeftButtonUp="Image_Click" ToolTip="单击使用系统图片查看器打开"/>
                         </Grid>
                     </Border>
                 </StackPanel>
@@ -156,9 +160,15 @@
                 <Grid Grid.Row="2" Margin="24,18,24,20">
                     <Grid x:Name="ListViewPanel">
                         <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
-                            <ItemsControl x:Name="ThreadItems" ItemTemplate="{StaticResource ThreadCardTemplate}"/>
-                        </ScrollViewer>
+                        <Grid Grid.Row="0">
+                            <ScrollViewer x:Name="ThreadListScrollViewer" VerticalScrollBarVisibility="Auto" ScrollChanged="ThreadListScrollViewer_ScrollChanged">
+                                <ItemsControl x:Name="ThreadItems" ItemTemplate="{StaticResource ThreadCardTemplate}"/>
+                            </ScrollViewer>
+                            <Border x:Name="ListNextPageLoading" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="7"
+                                    Padding="12,7" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10" Visibility="Collapsed" Panel.ZIndex="2">
+                                <StackPanel Orientation="Horizontal"><ProgressBar Width="50" Height="3" IsIndeterminate="True"/><TextBlock Text="正在加载下一页" Margin="9,0,0,0" FontSize="12"/></StackPanel>
+                            </Border>
+                        </Grid>
                         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10,0,0">
                             <Button Style="{StaticResource FluentButton}" Content="上一页" Click="PreviousPage_Click" Margin="0,0,8,0"/>
                             <TextBlock x:Name="PageNumberText" Text="第 1 页" VerticalAlignment="Center" Margin="8,0"/>
@@ -257,3 +267,4 @@
         </Grid>
     </Grid>
 </Window>
+

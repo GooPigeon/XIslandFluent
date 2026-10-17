@@ -15,7 +15,6 @@ internal static class Program
     private static int Main()
     {
         VerifyCookieSlots();
-        VerifyImageSizing();
         var exitCode = 1;
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
@@ -52,6 +51,28 @@ internal static class Program
                 await Task.Delay(5000);
                 if (window.Background is not SolidColorBrush background || background.Color != (Color)ColorConverter.ConvertFromString("#202020"))
                     throw new InvalidOperationException("深色主题没有应用到主窗口内容区");
+                var testForum = window.ForumCategories.SelectMany(x => x.Forums).FirstOrDefault(x => x.NumericId == 4)
+                    ?? window.ForumCategories.SelectMany(x => x.Forums).First(x => x.NumericId > 0);
+                var showBoard = typeof(MainWindow).GetMethod("ShowBoardAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingMethodException("ShowBoardAsync");
+                await ((Task?)showBoard.Invoke(window, [testForum, true]) ?? throw new InvalidOperationException("ShowBoardAsync did not return Task"));
+                var threadItems = (ItemsControl)(window.FindName("ThreadItems") ?? throw new InvalidOperationException("ThreadItems not found"));
+                var boardFirstPageCount = threadItems.Items.Count;
+                if (boardFirstPageCount == 0) throw new InvalidOperationException("板块第一页为空，无法验证无缝续页");
+                await Task.Delay(800);
+                if (threadItems.Items.Count != boardFirstPageCount)
+                    throw new InvalidOperationException("板块在用户未滚动时自动加载了下一页");
+                var loadNextBoard = typeof(MainWindow).GetMethod("LoadNextBoardPageAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingMethodException("LoadNextBoardPageAsync");
+                await ((Task?)loadNextBoard.Invoke(window, null) ?? throw new InvalidOperationException("LoadNextBoardPageAsync did not return Task"));
+                if (threadItems.Items.Count <= boardFirstPageCount)
+                    throw new InvalidOperationException("板块无缝续页没有追加新串");
+                if (!threadItems.Items.Cast<XIslandFluent.Models.Post>().Any(x => x.ShowPageDivider && x.PageDividerText == "第 2 页"))
+                    throw new InvalidOperationException("板块续页缺少细分页线");
+                var listPanel = (Grid)(window.FindName("ListViewPanel") ?? throw new InvalidOperationException("ListViewPanel not found"));
+                var listButtons = Descendants<Button>(listPanel).Select(x => x.Content?.ToString()).ToList();
+                if (!listButtons.Contains("上一页") || !listButtons.Contains("下一页"))
+                    throw new InvalidOperationException("板块原有分页按钮被删除");
                 var openThread = typeof(MainWindow).GetMethod("OpenThreadAsync", BindingFlags.Instance | BindingFlags.NonPublic)
                     ?? throw new MissingMethodException("OpenThreadAsync");
                 var task = (Task?)openThread.Invoke(window, [ThreadId, 1]) ?? throw new InvalidOperationException("OpenThreadAsync did not return Task");
@@ -65,21 +86,6 @@ internal static class Program
                 var firstPageCount = replies.Items.Count;
                 window.UpdateLayout();
                 await Task.Delay(250);
-                var imagePost = replies.Items.Cast<XIslandFluent.Models.Post>().FirstOrDefault(x => x.HasImage);
-                if (imagePost is not null)
-                {
-                    var imageContainer = (FrameworkElement)(replies.ItemContainerGenerator.ContainerFromItem(imagePost)
-                        ?? throw new InvalidOperationException("图片回复容器缺失"));
-                    var postImage = Descendants<Image>(imageContainer).FirstOrDefault(x => ReferenceEquals(x.Tag, imagePost))
-                        ?? throw new InvalidOperationException("图片回复没有生成图片控件");
-                    for (var i = 0; i < 50 && postImage.Source is null; i++) await Task.Delay(100);
-                    window.UpdateLayout();
-                    if (postImage.Source is null || postImage.ActualWidth <= 0 || postImage.ActualHeight <= 0)
-                        throw new InvalidOperationException("串内图片加载后没有可见尺寸");
-                    var sizeButton = Descendants<Button>(imageContainer).FirstOrDefault(x => x.Content?.ToString() == "缩小图片");
-                    if (imagePost.CanShrinkImage && sizeButton is null)
-                        throw new InvalidOperationException("大图没有显示缩小图片按钮");
-                }
                 await Task.Delay(800);
                 if (replies.Items.Count != firstPageCount)
                     throw new InvalidOperationException("进入长串后在用户未滚动时自动连续加载了后续页面");
@@ -288,7 +294,7 @@ internal static class Program
                 if (onlyPo.IsChecked == true)
                     throw new InvalidOperationException("只看 PO 状态被带到另一串");
                 exitCode = 0;
-                Console.WriteLine($"PASS navigation thread={ThreadId} firstPage={firstPageCount} appended={appendedCount} poReset=true");
+                Console.WriteLine($"PASS navigation board={testForum.NumericId} boardAppended={threadItems.Items.Count - boardFirstPageCount} thread={ThreadId} firstPage={firstPageCount} appended={appendedCount} poReset=true");
             }
             catch (Exception ex) { Console.WriteLine($"FAIL {ex}"); }
             finally
@@ -333,25 +339,6 @@ internal static class Program
             throw new InvalidOperationException("编码凭据被错误地当作饼干名称");
     }
 
-    private static void VerifyImageSizing()
-    {
-        var large = new XIslandFluent.Models.Post();
-        large.SetImageResolution(4000, 3000);
-        if (large.ImageDisplayWidth != 693 || large.ImageDisplayHeight != 520 || !large.CanShrinkImage)
-            throw new InvalidOperationException("大图没有按像素分辨率等比限制在正常阅读尺寸");
-        large.ToggleCompactImage();
-        if (large.ImageDisplayWidth != 293 || large.ImageDisplayHeight != 220 || large.ImageSizeActionText != "恢复图片")
-            throw new InvalidOperationException("缩小图片没有保持比例或更新按钮状态");
-        large.ToggleCompactImage();
-        if (large.ImageDisplayWidth != 693 || large.ImageDisplayHeight != 520)
-            throw new InvalidOperationException("恢复图片没有还原正常阅读尺寸");
-
-        var small = new XIslandFluent.Models.Post();
-        small.SetImageResolution(120, 80);
-        if (small.ImageDisplayWidth != 120 || small.ImageDisplayHeight != 80 || small.CanShrinkImage)
-            throw new InvalidOperationException("小图没有保持原始像素尺寸");
-    }
-
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
@@ -381,3 +368,4 @@ internal static class Program
         return visuals.Cast<object>().First(x => x.GetType().GetProperty("Path")?.GetValue(x) is System.Windows.Shapes.Path);
     }
 }
+

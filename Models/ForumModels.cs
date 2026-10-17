@@ -2,8 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Net;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 
 namespace XIslandFluent.Models;
 
@@ -42,20 +40,8 @@ public sealed class TimelineInfo
     public override string ToString() => string.IsNullOrWhiteSpace(DisplayName) ? Name : DisplayName;
 }
 
-public class Post : INotifyPropertyChanged
+public class Post
 {
-    private const double NormalImageMaxWidth = 720;
-    private const double NormalImageMaxHeight = 520;
-    private const double CompactImageMaxWidth = 360;
-    private const double CompactImageMaxHeight = 220;
-    private int _imagePixelWidth;
-    private int _imagePixelHeight;
-    private bool _isImageCompact;
-    private double _imageDisplayWidth = 180;
-    private double _imageDisplayHeight = 100;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
-
     [JsonPropertyName("id")][JsonConverter(typeof(FlexibleIntConverter))] public int Id { get; set; }
     [JsonPropertyName("fid")][JsonConverter(typeof(FlexibleIntConverter))] public int ForumId { get; set; }
     [JsonPropertyName("ReplyCount")][JsonConverter(typeof(FlexibleIntConverter))] public int ReplyCount { get; set; }
@@ -82,50 +68,6 @@ public class Post : INotifyPropertyChanged
     [JsonIgnore] public bool HasImage => !string.IsNullOrWhiteSpace(ImagePath) && !string.IsNullOrWhiteSpace(ImageExtension);
     [JsonIgnore] public string? ImageUrl { get; set; }
     [JsonIgnore] public string? ThumbnailUrl { get; set; }
-    [JsonIgnore] public double ImageDisplayWidth { get => _imageDisplayWidth; private set => SetField(ref _imageDisplayWidth, value); }
-    [JsonIgnore] public double ImageDisplayHeight { get => _imageDisplayHeight; private set => SetField(ref _imageDisplayHeight, value); }
-    [JsonIgnore] public bool IsImageCompact { get => _isImageCompact; private set { if (SetField(ref _isImageCompact, value)) OnPropertyChanged(nameof(ImageSizeActionText)); } }
-    [JsonIgnore] public bool CanShrinkImage => _imagePixelWidth > CompactImageMaxWidth || _imagePixelHeight > CompactImageMaxHeight;
-    [JsonIgnore] public string ImageSizeActionText => IsImageCompact ? "恢复图片" : "缩小图片";
-    [JsonIgnore] public string ImageResolutionText => _imagePixelWidth > 0 ? $"原图 {_imagePixelWidth} × {_imagePixelHeight}" : "正在读取图片分辨率";
-
-    public void SetImageResolution(int pixelWidth, int pixelHeight)
-    {
-        if (pixelWidth <= 0 || pixelHeight <= 0) return;
-        _imagePixelWidth = pixelWidth;
-        _imagePixelHeight = pixelHeight;
-        OnPropertyChanged(nameof(CanShrinkImage));
-        OnPropertyChanged(nameof(ImageResolutionText));
-        UpdateImageDisplaySize();
-    }
-
-    public void ToggleCompactImage()
-    {
-        if (!CanShrinkImage) return;
-        IsImageCompact = !IsImageCompact;
-        UpdateImageDisplaySize();
-    }
-
-    private void UpdateImageDisplaySize()
-    {
-        if (_imagePixelWidth <= 0 || _imagePixelHeight <= 0) return;
-        var maxWidth = IsImageCompact ? CompactImageMaxWidth : NormalImageMaxWidth;
-        var maxHeight = IsImageCompact ? CompactImageMaxHeight : NormalImageMaxHeight;
-        var scale = Math.Min(1d, Math.Min(maxWidth / _imagePixelWidth, maxHeight / _imagePixelHeight));
-        ImageDisplayWidth = Math.Max(1, Math.Round(_imagePixelWidth * scale));
-        ImageDisplayHeight = Math.Max(1, Math.Round(_imagePixelHeight * scale));
-    }
-
-    private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
-    }
-
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
 public sealed class FeedPost : Post
@@ -206,3 +148,4 @@ public static partial class HtmlText
         return ExtraNewlineRegex().Replace(text, "\n\n").Trim();
     }
 }
+
